@@ -5,7 +5,7 @@ import streamlit as st
 # Đọc các file cấu hình và class
 config_file = r"/workspaces/Quynh/yolov3.cfg"
 weights_file = r"/workspaces/Quynh/yolov3.weights"
-classes_file = r"/workspaces/Quynh/yolov3.txt"
+classes_file = "yolov3.txt"
 
 # Đọc các lớp từ tệp
 with open(classes_file, 'r') as f:
