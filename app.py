@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
-import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+import gradio as gr
 import os
 import gdown
 import logging
@@ -13,7 +12,7 @@ logging.basicConfig(level=logging.DEBUG)
 weights_file = "yolov3.weights"
 if not os.path.exists(weights_file):
     drive_url = "https://drive.google.com/uc?id=11rE4um7BB12mtsgiq-D774qprMaRhjpm"
-    st.write("Downloading yolov3.weights from Google Drive...")
+    print("Downloading yolov3.weights from Google Drive...")
     gdown.download(drive_url, weights_file, quiet=False)
 
 # Kiểm tra và tải các tệp cấu hình
@@ -21,8 +20,8 @@ config_file = "yolov3.cfg"
 classes_file = "yolov3.txt"
 
 if not os.path.exists(config_file) or not os.path.exists(classes_file):
-    st.error("Tệp cấu hình hoặc tệp classes không tồn tại. Vui lòng kiểm tra lại!")
-    st.stop()
+    print("Tệp cấu hình hoặc tệp classes không tồn tại. Vui lòng kiểm tra lại!")
+    exit()
 
 # Đọc các lớp từ tệp
 with open(classes_file, 'r') as f:
@@ -35,8 +34,8 @@ COLORS = np.random.uniform(0, 255, size=(len(classes), 3))
 try:
     net = cv2.dnn.readNet(weights_file, config_file)
 except Exception as e:
-    st.error(f"Lỗi khi tải mô hình YOLO: {e}")
-    st.stop()
+    print(f"Lỗi khi tải mô hình YOLO: {e}")
+    exit()
 
 # Hàm lấy các lớp đầu ra từ YOLO
 def get_output_layers(net):
@@ -88,49 +87,40 @@ def detect_objects(frame, object_names, frame_limit, object_counts_input):
 
     return frame
 
-# Xác định lớp xử lý video
-class VideoTransformer(VideoTransformerBase):
-    def __init__(self, object_names, frame_limit, object_counts_input):
-        self.object_names = object_names
-        self.frame_limit = frame_limit
-        self.object_counts_input = object_counts_input
+# Hàm để xử lý video trong Gradio
+def video_processing(frame, object_names, frame_limit, object_counts_input):
+    if frame is None:
+        return frame  # Trả về None nếu frame là None
 
-    def transform(self, frame):
-        if frame is None:
-            return None  # Trả về None nếu frame là None
+    try:
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Đổi từ BGR sang RGB
+        processed_frame = detect_objects(frame, object_names, frame_limit, object_counts_input)
+        return cv2.cvtColor(processed_frame, cv2.COLOR_RGB2BGR)  # Đổi lại từ RGB sang BGR
+    except Exception as e:
+        print(f"Lỗi trong quá trình xử lý video: {e}")
+        return frame
 
-        try:
-            frame = cv2.cvtColor(frame.to_ndarray(), cv2.COLOR_BGR2RGB)
-            processed_frame = detect_objects(frame, self.object_names, self.frame_limit, self.object_counts_input)
-            return cv2.cvtColor(processed_frame, cv2.COLOR_RGB2BGR)
-        except Exception as e:
-            st.error(f"Lỗi trong quá trình xử lý video: {e}")
-            logging.error(f"Lỗi trong quá trình xử lý video: {e}")
-            return frame.to_ndarray()
+# Tạo giao diện Gradio
+def create_interface():
+    # Stream video từ webcam
+    video_input = gr.inputs.Video(source="webcam", type="numpy")  # Nhận input video từ webcam
+    video_output = gr.outputs.Video(type="numpy")  # Đầu ra video đã xử lý
 
-# Streamlit UI
-st.title("Object Detection with YOLO")
-object_names_input = st.sidebar.text_input('Enter Object Names (comma separated)', 'cell phone,laptop,umbrella')
-object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
-frame_limit = st.sidebar.slider('Set Frame Limit for Alarm', 1, 10, 3)
+    # Các tham số đầu vào từ người dùng
+    object_names_input = gr.inputs.Textbox(default="cell phone,laptop,umbrella", label="Enter Object Names (comma separated)")
+    frame_limit = gr.inputs.Slider(minimum=1, maximum=10, default=3, label="Set Frame Limit for Alarm")
 
-# Nhập số lượng vật thể cần giám sát
-object_counts_input = {}
-for obj in object_names:
-    object_counts_input[obj] = st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1)
+    # Nhập số lượng vật thể cần giám sát
+    object_counts_input = gr.inputs.Textbox(default="cell phone:1,laptop:1,umbrella:1", label="Enter number of objects to monitor (comma separated)")
 
-# Cấu hình WebRTC
-rtc_configuration = {
-    "iceServers": [
-        {"urls": ["stun:stun.l.google.com:19302"]},  # STUN server của Google
-        {"urls": ["turn:your-turn-server.com"], "username": "your-username", "credential": "your-credential"}  # TURN server nếu cần thiết
-    ]
-}
+    # Tạo giao diện Gradio
+    iface = gr.Interface(fn=video_processing, 
+                         inputs=[video_input, object_names_input, frame_limit, object_counts_input], 
+                         outputs=video_output,
+                         live=True)
 
-# Khởi chạy camera với streamlit-webrtc
-webrtc_streamer(
-    key="object-detection",
-    video_processor_factory=lambda: VideoTransformer(object_names, frame_limit, object_counts_input),
-    rtc_configuration=rtc_configuration,
-    media_stream_constraints={"video": True, "audio": False},  # Chỉ bật video
-)
+    iface.launch()
+
+# Khởi chạy giao diện
+if __name__ == "__main__":
+    create_interface()
