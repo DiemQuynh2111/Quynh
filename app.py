@@ -1,3 +1,4 @@
+import os
 import cv2
 import numpy as np
 import streamlit as st
@@ -11,7 +12,7 @@ classes_file = "coco.names"
 
 # Kiểm tra và tải các tệp weights, config và class nếu chưa có
 # Bạn cần đảm bảo các tệp này đã được tải về trước khi chạy ứng dụng
-if not os.path.exists(weights_file):
+if not os.path.exists(weights_file):  
     st.error(f"File {weights_file} không tồn tại.")
 if not os.path.exists(config_file):
     st.error(f"File {config_file} không tồn tại.")
