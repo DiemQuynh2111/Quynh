@@ -86,9 +86,9 @@ def play_alarm():
 
 play_alarm()
 
-# Cấu hình STUN server để hỗ trợ kết nối WebRTC
-ice_servers = [RTCIceServer(urls="stun:stun.l.google.com:19302")]
-rtc_configuration = RTCConfiguration(iceServers=ice_servers)
+# Khởi tạo session_state để lưu trữ trạng thái cảnh báo
+if 'alert' not in st.session_state:
+    st.session_state.alert = False
 
 # Hàm xử lý khung hình video
 def video_frame_callback(frame: VideoFrame):
@@ -152,9 +152,11 @@ def video_frame_callback(frame: VideoFrame):
                         (50, 50 + object_names.index(obj) * 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-    # Nếu cần, gọi hàm JavaScript để phát âm thanh cảnh báo
+    # Cập nhật trạng thái cảnh báo trong session_state
     if missing_alert_triggered:
-        st.write("<script>playAlarm();</script>", unsafe_allow_html=True)
+        st.session_state.alert = True
+    else:
+        st.session_state.alert = False
 
     return VideoFrame.from_ndarray(img, format="bgr24")
 
@@ -162,8 +164,16 @@ def video_frame_callback(frame: VideoFrame):
 webrtc_streamer(
     key="object-detection",
     mode=WebRtcMode.SENDRECV,
-    rtc_configuration=rtc_configuration,
+    rtc_configuration=RTCConfiguration(
+        iceServers=[RTCIceServer(urls="stun:stun.l.google.com:19302")]
+    ),
     video_frame_callback=video_frame_callback,
     media_stream_constraints={"video": True, "audio": False},
     async_processing=True,
 )
+
+# Hiển thị cảnh báo và phát âm thanh nếu cần
+if st.session_state.alert:
+    st.warning("Warning: Một hoặc nhiều đối tượng đang thiếu!")
+    # Gọi hàm JavaScript để phát âm thanh cảnh báo
+    st.components.v1.html("<script>playAlarm();</script>", height=0)
