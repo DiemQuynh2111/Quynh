@@ -124,8 +124,10 @@ webrtc_streamer(
     video_processor_factory=lambda: VideoTransformer(object_names, frame_limit, object_counts_input),
     rtc_configuration={
         "iceServers": [
-            {"urls": ["stun:stun.l.google.com:19302"]}
+            {"urls": ["stun:stun.l.google.com:19302"]},
+            {"urls": ["stun:stun1.l.google.com:19302"]}
         ]
     },
     media_stream_constraints={"video": True, "audio": False},  # Chỉ bật video
+    on_error=lambda e: st.error(f"WebRTC Error: {e}")
 )
