@@ -129,7 +129,7 @@ def video_frame_callback(frame: VideoFrame):
 
     return VideoFrame.from_ndarray(img, format="bgr24")
 
-# Tạo WebRTC context với đúng cách sử dụng
+# Tạo WebRTC context đúng cách với webrtc_streamer
 webrtc_streamer = webrtc.webrtc_streamer(
     key="video-frame",  # Đảm bảo key duy nhất
     video_frame_callback=video_frame_callback,
