@@ -3,7 +3,8 @@ opencv-python-headless
 numpy
 streamlit-webrtc
 gdown
-aioice
-watchdog
+gradio
+
+
 
 
