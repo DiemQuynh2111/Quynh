@@ -107,6 +107,8 @@ class VideoTransformer(VideoTransformerBase):
 
 # Streamlit UI
 st.title("Object Detection with YOLO")
+
+# Câu hỏi nhập tên đối tượng cần tìm
 object_names_input = st.sidebar.text_input('Enter Object Names (comma separated)', 'cell phone,laptop,umbrella')
 object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
 frame_limit = st.sidebar.slider('Set Frame Limit for Alarm', 1, 10, 3)
@@ -116,15 +118,13 @@ object_counts_input = {}
 for obj in object_names:
     object_counts_input[obj] = st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1)
 
-# Khởi chạy camera với streamlit-webrtc
+# Cấu hình camera
 webrtc_streamer(
     key="object-detection",
     video_processor_factory=lambda: VideoTransformer(object_names, frame_limit, object_counts_input),
     rtc_configuration={
         "iceServers": [
-            {"urls": ["stun:stun.l.google.com:19302"]},
-            # Thêm TURN server nếu cần
-            {"urls": ["turn:turnserver.com"], "username": "user", "credential": "password"}
+            {"urls": ["stun:stun.l.google.com:19302"]}
         ]
     },
     media_stream_constraints={"video": True, "audio": False},  # Chỉ bật video
