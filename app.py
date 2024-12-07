@@ -4,6 +4,7 @@ import numpy as np
 import streamlit as st
 import gdown
 import urllib
+import time
 
 # Đường dẫn đến tệp weights, config, và classes
 weights_file = "yolov3.weights"
@@ -50,6 +51,8 @@ def get_output_layers(net):
 
 # Streamlit UI
 st.title("Object Detection with YOLO")
+
+# Sidebar để nhập tên đối tượng và số lượng cần giám sát
 object_names_input = st.sidebar.text_input('Enter Object Names (comma separated)', 'cell phone,laptop,umbrella')
 object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
 frame_limit = st.sidebar.slider('Set Frame Limit for Alarm', 1, 10, 3)
@@ -59,19 +62,44 @@ object_counts_input = {}
 for obj in object_names:
     object_counts_input[obj] = st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1)
 
+# Đường dẫn đến tệp âm thanh cảnh báo (nếu cần)
 alarm_sound = r"/workspaces/Quynh/police.wav"
 
-# Hàm xử lý và hiển thị video trong Streamlit
-def detect_objects_from_video():
-    cap = cv2.VideoCapture(0)  # Mở webcam
+# Placeholder để hiển thị video
+frame_placeholder = st.empty()
 
-    while True:
+# Button để bắt đầu và dừng phát hiện
+start_button = st.button("Start Detection")
+stop_button = st.button("Stop Detection")
+
+# Sử dụng Session State để quản lý trạng thái phát hiện
+if 'running' not in st.session_state:
+    st.session_state.running = False
+
+if start_button:
+    st.session_state.running = True
+
+if stop_button:
+    st.session_state.running = False
+
+# Hàm phát hiện đối tượng
+def detect_objects():
+    # Mở webcam
+    cap = cv2.VideoCapture(0)
+
+    if not cap.isOpened():
+        st.error("Unable to access the camera.")
+        return
+
+    while st.session_state.running:
         ret, frame = cap.read()
         if not ret:
-            st.write("Failed to grab frame")
+            st.error("Failed to grab frame.")
             break
 
         height, width, channels = frame.shape
+
+        # Phát hiện đối tượng
         blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
         net.setInput(blob)
         outs = net.forward(get_output_layers(net))
@@ -79,7 +107,7 @@ def detect_objects_from_video():
         class_ids = []
         confidences = []
         boxes = []
-        detected_objects = {obj: 0 for obj in object_names}  # Đếm các vật thể đã phát hiện
+        detected_objects = {obj: 0 for obj in object_names}
 
         for out in outs:
             for detection in out:
@@ -97,7 +125,7 @@ def detect_objects_from_video():
                     confidences.append(float(confidence))
                     class_ids.append(class_id)
 
-        # Áp dụng NMS (Non-Maximum Suppression) để loại bỏ các bounding boxes dư thừa
+        # Áp dụng NMS (Non-Maximum Suppression)
         indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
 
         if len(indices) > 0:
@@ -107,34 +135,37 @@ def detect_objects_from_video():
                 color = COLORS[class_ids[i]]
                 label = str(classes[class_ids[i]])
                 cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-                cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+                cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
                 # Cập nhật số lượng vật thể đã phát hiện
-                detected_objects[classes[class_ids[i]].lower()] += 1
+                detected_objects[label.lower()] += 1
 
         # Kiểm tra số lượng vật thể theo yêu cầu
         for obj in object_names:
             required_count = object_counts_input[obj]
             current_count = detected_objects[obj]
-            
-            # Nếu số lượng vật thể phát hiện ít hơn yêu cầu, hiển thị cảnh báo
+
             if required_count > 0 and current_count < required_count:
                 missing_object = obj
-                cv2.putText(frame, f"Warning: {missing_object} Missing!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                cv2.putText(frame, f"Warning: {missing_object} Missing!", (50, 50), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-                # Phát âm thanh cảnh báo
-                with open(alarm_sound, "rb") as audio_file:
-                    audio_bytes = audio_file.read()
-                st.audio(audio_bytes, format="audio/wav")
-            elif current_count >= required_count:  # Nếu số lượng vật thể đủ
-                cv2.putText(frame, f"{obj.capitalize()}: {current_count}/{required_count}", (50, 50 + object_names.index(obj) * 30), 
+                # Phát âm thanh cảnh báo (không được hỗ trợ trực tiếp trong Streamlit)
+                # Bạn có thể thêm thông báo hoặc hướng dẫn người dùng thực hiện hành động khác
+
+            elif current_count >= required_count:
+                cv2.putText(frame, f"{obj.capitalize()}: {current_count}/{required_count}", 
+                            (50, 50 + object_names.index(obj) * 30), 
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-        # Hiển thị ảnh trong Streamlit
-        st.image(frame, channels="BGR", use_column_width=True)
+        # Hiển thị khung hình trong Streamlit
+        frame_placeholder.image(frame, channels="BGR", use_column_width=True)
+
+        # Giới hạn tốc độ khung hình
+        time.sleep(0.03)  # Khoảng 30 FPS
 
     cap.release()
 
-# Gọi hàm phát hiện đối tượng từ video
-if st.button("Start Detection"):
-    detect_objects_from_video()
+# Chạy quá trình phát hiện đối tượng khi nhấn Start Detection
+if st.session_state.running:
+    detect_objects()
