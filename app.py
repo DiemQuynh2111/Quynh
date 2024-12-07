@@ -3,9 +3,9 @@ import cv2
 import numpy as np
 import streamlit as st
 import gdown
-import urllib
-from av import VideoFrame
 import streamlit_webrtc as webrtc
+from av import VideoFrame
+import urllib
 
 # Đường dẫn đến tệp weights, config, và classes
 weights_file = "yolov3.weights"
@@ -129,9 +129,12 @@ def video_frame_callback(frame: VideoFrame):
 
     return VideoFrame.from_ndarray(img, format="bgr24")
 
-# Sử dụng WebRTC đúng cách với API
-webrtc.webrtc_streamer(
-    key="example",  # Một key duy nhất cho WebRTC streamer
+# Cấu hình và sử dụng WebRTC
+webrtc_streamer = webrtc.streamlit_webrtc(
+    key="object-detection",  # Dùng key duy nhất cho ứng dụng
     video_frame_callback=video_frame_callback,
-    media_stream_constraints={"video": True, "audio": False}
+    media_stream_constraints={"video": True, "audio": False},
+    on_error=print,  # Xử lý lỗi dễ dàng hơn
+    video_html_attrs={"style": {"width": "100%"}}  # Cải thiện giao diện video
 )
+
