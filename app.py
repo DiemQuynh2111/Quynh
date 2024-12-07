@@ -84,7 +84,6 @@ def detect_objects(frame, object_names, frame_limit, object_counts_input):
 
     return frame
 
-
 # Xác định lớp xử lý video
 class VideoTransformer(VideoTransformerBase):
     def __init__(self, object_names, frame_limit, object_counts_input):
@@ -103,7 +102,6 @@ class VideoTransformer(VideoTransformerBase):
         except Exception as e:
             st.error(f"Lỗi trong quá trình xử lý video: {e}")
             return frame.to_ndarray(format="bgr24")
-
 
 # Streamlit UI
 st.title("Object Detection with YOLO")
@@ -133,3 +131,4 @@ webrtc_streamer(
     rtc_configuration=RTC_CONFIGURATION,
     media_stream_constraints={"video": True, "audio": False},  # Chỉ bật video
 )
+
