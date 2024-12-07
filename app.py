@@ -3,8 +3,9 @@ import cv2
 import numpy as np
 import streamlit as st
 import gdown
-import urllib
-import time
+import urllib.request
+from av import VideoFrame
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration, RTCIceServer
 
 # Đường dẫn đến tệp weights, config, và classes
 weights_file = "yolov3.weights"
@@ -18,17 +19,17 @@ classes_url = "https://raw.githubusercontent.com/pjreddie/darknet/master/data/co
 # Kiểm tra và tải tệp weights từ Google Drive nếu không tồn tại
 if not os.path.exists(weights_file):
     gdown.download("https://drive.google.com/uc?id=1pT0G-Mk9QIbjbOT4WTKEAf4TsmfG7jRD", weights_file, quiet=False)
-    print(f"Downloaded {weights_file}")
+    st.write(f"Downloaded {weights_file}")
 
 # Kiểm tra và tải tệp config nếu không tồn tại
 if not os.path.exists(config_file):
     urllib.request.urlretrieve(config_url, config_file)
-    print(f"Downloaded {config_file}")
+    st.write(f"Downloaded {config_file}")
 
 # Kiểm tra và tải tệp classes nếu không tồn tại
 if not os.path.exists(classes_file):
     urllib.request.urlretrieve(classes_url, classes_file)
-    print(f"Downloaded {classes_file}")
+    st.write(f"Downloaded {classes_file}")
 
 # Đọc các lớp từ tệp
 with open(classes_file, 'r') as f:
@@ -65,109 +66,80 @@ for obj in object_names:
 # Đường dẫn đến tệp âm thanh cảnh báo (nếu cần)
 alarm_sound = r"/workspaces/Quynh/police.wav"
 
-# Placeholder để hiển thị video
-frame_placeholder = st.empty()
+# Cấu hình STUN server để hỗ trợ kết nối WebRTC
+ice_servers = [RTCIceServer(urls="stun:stun.l.google.com:19302")]
+rtc_configuration = RTCConfiguration(iceServers=ice_servers)
 
-# Button để bắt đầu và dừng phát hiện
-start_button = st.button("Start Detection")
-stop_button = st.button("Stop Detection")
+# Hàm xử lý khung hình video
+def video_frame_callback(frame: VideoFrame):
+    img = frame.to_ndarray(format="bgr24")
 
-# Sử dụng Session State để quản lý trạng thái phát hiện
-if 'running' not in st.session_state:
-    st.session_state.running = False
+    height, width, channels = img.shape
+    blob = cv2.dnn.blobFromImage(img, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+    net.setInput(blob)
+    outs = net.forward(get_output_layers(net))
 
-if start_button:
-    st.session_state.running = True
+    class_ids = []
+    confidences = []
+    boxes = []
+    detected_objects = {obj: 0 for obj in object_names}  # Đếm các vật thể đã phát hiện
 
-if stop_button:
-    st.session_state.running = False
+    for out in outs:
+        for detection in out:
+            scores = detection[5:]
+            class_id = np.argmax(scores)
+            confidence = scores[class_id]
+            if confidence > 0.5 and classes[class_id].lower() in object_names:
+                center_x = int(detection[0] * width)
+                center_y = int(detection[1] * height)
+                w = int(detection[2] * width)
+                h = int(detection[3] * height)
+                x = int(center_x - w / 2)
+                y = int(center_y - h / 2)
+                boxes.append([x, y, w, h])
+                confidences.append(float(confidence))
+                class_ids.append(class_id)
 
-# Hàm phát hiện đối tượng
-def detect_objects(video_source=0):
-    # Mở webcam hoặc video file
-    cap = cv2.VideoCapture(video_source)
+    # Áp dụng NMS (Non-Maximum Suppression) để loại bỏ các bounding boxes dư thừa
+    indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
 
-    if not cap.isOpened():
-        st.error("Không thể mở nguồn video.")
-        return
+    if len(indices) > 0:
+        for i in indices.flatten():
+            box = boxes[i]
+            x, y, w, h = box
+            color = COLORS[class_ids[i]]
+            label = str(classes[class_ids[i]])
+            cv2.rectangle(img, (x, y), (x + w, y + h), color, 2)
+            cv2.putText(img, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
 
-    while st.session_state.running:
-        ret, frame = cap.read()
-        if not ret:
-            st.error("Không thể nhận khung hình từ nguồn video.")
-            break
+            # Cập nhật số lượng vật thể đã phát hiện
+            detected_objects[classes[class_ids[i]].lower()] += 1
 
-        height, width, channels = frame.shape
+    # Kiểm tra số lượng vật thể theo yêu cầu
+    for obj in object_names:
+        required_count = object_counts_input[obj]
+        current_count = detected_objects[obj]
 
-        # Phát hiện đối tượng
-        blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
-        net.setInput(blob)
-        outs = net.forward(get_output_layers(net))
+        if required_count > 0 and current_count < required_count:
+            missing_object = obj
+            cv2.putText(img, f"Warning: {missing_object} Missing!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-        class_ids = []
-        confidences = []
-        boxes = []
-        detected_objects = {obj: 0 for obj in object_names}
+            # Phát âm thanh cảnh báo (không thể phát trực tiếp trong Streamlit, có thể thêm thông báo)
+            # st.audio(alarm_sound, format="audio/wav")  # Lỗi: st.audio yêu cầu audio từ client
 
-        for out in outs:
-            for detection in out:
-                scores = detection[5:]
-                class_id = np.argmax(scores)
-                confidence = scores[class_id]
-                if confidence > 0.5 and classes[class_id].lower() in object_names:
-                    center_x = int(detection[0] * width)
-                    center_y = int(detection[1] * height)
-                    w = int(detection[2] * width)
-                    h = int(detection[3] * height)
-                    x = int(center_x - w / 2)
-                    y = int(center_y - h / 2)
-                    boxes.append([x, y, w, h])
-                    confidences.append(float(confidence))
-                    class_ids.append(class_id)
+        elif current_count >= required_count:
+            cv2.putText(img, f"{obj.capitalize()}: {current_count}/{required_count}", 
+                        (50, 50 + object_names.index(obj) * 30), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-        # Áp dụng NMS (Non-Maximum Suppression)
-        indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
+    return VideoFrame.from_ndarray(img, format="bgr24")
 
-        if len(indices) > 0:
-            for i in indices.flatten():
-                box = boxes[i]
-                x, y, w, h = box
-                color = COLORS[class_ids[i]]
-                label = str(classes[class_ids[i]])
-                cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-                cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-                # Cập nhật số lượng vật thể đã phát hiện
-                detected_objects[label.lower()] += 1
-
-        # Kiểm tra số lượng vật thể theo yêu cầu
-        for obj in object_names:
-            required_count = object_counts_input[obj]
-            current_count = detected_objects[obj]
-
-            if required_count > 0 and current_count < required_count:
-                missing_object = obj
-                cv2.putText(frame, f"Warning: {missing_object} Missing!", (50, 50), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-
-                # Phát âm thanh cảnh báo (không được hỗ trợ trực tiếp trong Streamlit)
-                # Bạn có thể thêm thông báo hoặc hướng dẫn người dùng thực hiện hành động khác
-
-            elif current_count >= required_count:
-                cv2.putText(frame, f"{obj.capitalize()}: {current_count}/{required_count}", 
-                            (50, 50 + object_names.index(obj) * 30), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-
-        # Hiển thị khung hình trong Streamlit
-        frame_placeholder.image(frame, channels="BGR", use_column_width=True)
-
-        # Giới hạn tốc độ khung hình
-        time.sleep(0.03)  # Khoảng 30 FPS
-
-    cap.release()
-
-# Chạy quá trình phát hiện đối tượng khi nhấn Start Detection
-if st.session_state.running:
-    # Bạn có thể thay đổi `video_source` thành đường dẫn tệp video nếu không sử dụng webcam
-    detect_objects(video_source=0)  # Sử dụng 0 để mở webcam
-
+# Sử dụng WebRTC streamer
+webrtc_streamer(
+    key="object-detection",
+    mode=WebRtcMode.SENDRECV,
+    rtc_configuration=rtc_configuration,
+    video_frame_callback=video_frame_callback,
+    media_stream_constraints={"video": True, "audio": False},
+    async_processing=True,
+)
