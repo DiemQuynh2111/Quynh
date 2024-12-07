@@ -84,7 +84,6 @@ def detect_objects(frame, object_names, frame_limit, object_counts_input):
 
     return frame
 
-
 # Xác định lớp xử lý video
 class VideoTransformer(VideoTransformerBase):
     def __init__(self, object_names, frame_limit, object_counts_input):
@@ -104,7 +103,6 @@ class VideoTransformer(VideoTransformerBase):
             st.error(f"Lỗi trong quá trình xử lý video: {e}")
             return frame.to_ndarray()
 
-
 # Streamlit UI
 st.title("Object Detection with YOLO")
 
@@ -119,14 +117,23 @@ for obj in object_names:
     object_counts_input[obj] = st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1)
 
 # Cấu hình WebRTC
-webrtc_streamer(
-    key="object-detection",
-    video_processor_factory=lambda: VideoTransformer(object_names, frame_limit, object_counts_input),
-    rtc_configuration={
-        "iceServers": [
-            {"urls": ["stun:stun.l.google.com:19302"]},
-            {"urls": ["stun:stun1.l.google.com:19302"]}
-        ]
-    },
-    media_stream_constraints={"video": True, "audio": False},  # Chỉ bật video
-)
+rtc_configuration = {
+    "iceServers": [
+        {"urls": ["stun:stun.l.google.com:19302"]},
+        {"urls": ["stun:stun1.l.google.com:19302"]},
+        {"urls": ["stun:stun2.l.google.com:19302"]},
+        # Optional TURN server if available
+        # {"urls": ["turn:turn.example.com:3478"], "username": "user", "credential": "password"}
+    ]
+}
+
+# Khởi tạo video stream
+try:
+    webrtc_streamer(
+        key="object-detection",
+        video_processor_factory=lambda: VideoTransformer(object_names, frame_limit, object_counts_input),
+        rtc_configuration=rtc_configuration,
+        media_stream_constraints={"video": True, "audio": False}  # Chỉ bật video
+    )
+except Exception as e:
+    st.error(f"An error occurred while setting up the WebRTC stream: {e}")
