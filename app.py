@@ -1,35 +1,24 @@
-import os
 import cv2
 import numpy as np
 import streamlit as st
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+import os
 import gdown
-import streamlit_webrtc as webrtc
-from av import VideoFrame
-import urllib
 
-# Đường dẫn đến tệp weights, config, và classes
+# Kiểm tra và tải tệp yolov3.weights từ Google Drive nếu chưa tồn tại
 weights_file = "yolov3.weights"
+if not os.path.exists(weights_file):
+    drive_url = "https://drive.google.com/uc?id=11rE4um7BB12mtsgiq-D774qprMaRhjpm"
+    st.write("Downloading yolov3.weights from Google Drive...")
+    gdown.download(drive_url, weights_file, quiet=False)
+
+# Kiểm tra và tải các tệp cấu hình
 config_file = "yolov3.cfg"
 classes_file = "yolov3.txt"
 
-# URL cho tệp config và classes
-config_url = "https://raw.githubusercontent.com/pjreddie/darknet/master/cfg/yolov3.cfg"
-classes_url = "https://raw.githubusercontent.com/pjreddie/darknet/master/data/coco.names"
-
-# Kiểm tra và tải tệp weights từ Google Drive nếu không tồn tại
-if not os.path.exists(weights_file):
-    gdown.download("https://drive.google.com/uc?id=1pT0G-Mk9QIbjbOT4WTKEAf4TsmfG7jRD", weights_file, quiet=False)
-    print(f"Downloaded {weights_file}")
-
-# Kiểm tra và tải tệp config nếu không tồn tại
-if not os.path.exists(config_file):
-    urllib.request.urlretrieve(config_url, config_file)
-    print(f"Downloaded {config_file}")
-
-# Kiểm tra và tải tệp classes nếu không tồn tại
-if not os.path.exists(classes_file):
-    urllib.request.urlretrieve(classes_url, classes_file)
-    print(f"Downloaded {classes_file}")
+if not os.path.exists(config_file) or not os.path.exists(classes_file):
+    st.error("Tệp cấu hình hoặc tệp classes không tồn tại. Vui lòng kiểm tra lại!")
+    st.stop()
 
 # Đọc các lớp từ tệp
 with open(classes_file, 'r') as f:
@@ -39,44 +28,31 @@ with open(classes_file, 'r') as f:
 COLORS = np.random.uniform(0, 255, size=(len(classes), 3))
 
 # Tải mô hình YOLO
-net = cv2.dnn.readNet(weights_file, config_file)
+try:
+    net = cv2.dnn.readNet(weights_file, config_file)
+except Exception as e:
+    st.error(f"Lỗi khi tải mô hình YOLO: {e}")
+    st.stop()
 
-# Lấy các layer output
+# Hàm lấy các lớp đầu ra từ YOLO
 def get_output_layers(net):
     layer_names = net.getLayerNames()
-    unconnected_out_layers = net.getUnconnectedOutLayers()
-    if isinstance(unconnected_out_layers, np.ndarray) and unconnected_out_layers.ndim == 1:
-        return [layer_names[i - 1] for i in unconnected_out_layers]
-    else:
-        return [layer_names[i[0] - 1] for i in unconnected_out_layers]
+    return [layer_names[i[0] - 1] for i in net.getUnconnectedOutLayers()]
 
-# Streamlit UI
-st.title("Object Detection with YOLO")
-object_names_input = st.sidebar.text_input('Enter Object Names (comma separated)', 'cell phone,laptop,umbrella')
-object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
-frame_limit = st.sidebar.slider('Set Frame Limit for Alarm', 1, 10, 3)
-
-# Nhập số lượng vật thể cần giám sát
-object_counts_input = {}
-for obj in object_names:
-    object_counts_input[obj] = st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1)
-
-alarm_sound = r"/workspaces/Quynh/police.wav"
-
-# Streamlit WebRTC callback
-def video_frame_callback(frame: VideoFrame):
-    # Convert AV frame to numpy array
-    img = frame.to_ndarray(format="bgr24")
+# Hàm xử lý YOLO
+def detect_objects(frame, object_names, frame_limit, object_counts_input):
+    if frame is None:
+        return frame  # Bỏ qua nếu khung hình là None
     
-    height, width, channels = img.shape
-    blob = cv2.dnn.blobFromImage(img, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+    height, width, _ = frame.shape
+    blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
     net.setInput(blob)
     outs = net.forward(get_output_layers(net))
 
     class_ids = []
     confidences = []
     boxes = []
-    detected_objects = {obj: 0 for obj in object_names}  # Đếm các vật thể đã phát hiện
+    detected_objects = {obj: 0 for obj in object_names}
 
     for out in outs:
         for detection in out:
@@ -94,48 +70,58 @@ def video_frame_callback(frame: VideoFrame):
                 confidences.append(float(confidence))
                 class_ids.append(class_id)
 
-    # Áp dụng NMS (Non-Maximum Suppression) để loại bỏ các bounding boxes dư thừa
+    # Áp dụng Non-Maximum Suppression (NMS)
     indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
 
-    if len(indices) > 0:
-        for i in indices.flatten():
-            box = boxes[i]
-            x, y, w, h = box
-            color = COLORS[class_ids[i]]
-            label = str(classes[class_ids[i]])
-            cv2.rectangle(img, (x, y), (x + w, y + h), color, 2)
-            cv2.putText(img, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+    for i in indices.flatten():
+        box = boxes[i]
+        x, y, w, h = box
+        color = COLORS[class_ids[i]]
+        label = str(classes[class_ids[i]])
+        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+        cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+        detected_objects[classes[class_ids[i]].lower()] += 1
 
-            # Cập nhật số lượng vật thể đã phát hiện
-            detected_objects[classes[class_ids[i]].lower()] += 1
+    return frame
 
-    # Kiểm tra số lượng vật thể theo yêu cầu
-    for obj in object_names:
-        required_count = object_counts_input[obj]
-        current_count = detected_objects[obj]
-        
-        # Nếu số lượng vật thể phát hiện ít hơn yêu cầu, hiển thị cảnh báo
-        if required_count > 0 and current_count < required_count:
-            missing_object = obj
-            cv2.putText(img, f"Warning: {missing_object} Missing!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-            # Phát âm thanh cảnh báo
-            with open(alarm_sound, "rb") as audio_file:
-                audio_bytes = audio_file.read()
-            st.audio(audio_bytes, format="audio/wav")
-        elif current_count >= required_count:  # Nếu số lượng vật thể đủ
-            cv2.putText(img, f"{obj.capitalize()}: {current_count}/{required_count}", (50, 50 + object_names.index(obj) * 30), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+# Xác định lớp xử lý video
+class VideoTransformer(VideoTransformerBase):
+    def __init__(self, object_names, frame_limit, object_counts_input):
+        self.object_names = object_names
+        self.frame_limit = frame_limit
+        self.object_counts_input = object_counts_input
 
-    return VideoFrame.from_ndarray(img, format="bgr24")
+    def transform(self, frame):
+        if frame is None:
+            return None  # Trả về None nếu frame là None
 
-# Tạo WebRTC context
-webrtc_streamer = webrtc.StreamlitWebRtc(
-    video_frame_callback=video_frame_callback,
-    media_stream_constraints={"video": True, "audio": False}
+        try:
+            frame = cv2.cvtColor(frame.to_ndarray(), cv2.COLOR_BGR2RGB)
+            processed_frame = detect_objects(frame, self.object_names, self.frame_limit, self.object_counts_input)
+            return cv2.cvtColor(processed_frame, cv2.COLOR_RGB2BGR)
+        except Exception as e:
+            st.error(f"Lỗi trong quá trình xử lý video: {e}")
+            return frame.to_ndarray()
+
+
+# Streamlit UI
+st.title("Object Detection with YOLO")
+object_names_input = st.sidebar.text_input('Enter Object Names (comma separated)', 'cell phone,laptop,umbrella')
+object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
+frame_limit = st.sidebar.slider('Set Frame Limit for Alarm', 1, 10, 3)
+
+# Nhập số lượng vật thể cần giám sát
+object_counts_input = {}
+for obj in object_names:
+    object_counts_input[obj] = st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1)
+
+# Khởi chạy camera với streamlit-webrtc
+webrtc_streamer(
+    key="object-detection",
+    video_processor_factory=lambda: VideoTransformer(object_names, frame_limit, object_counts_input),
+    rtc_configuration={
+        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+    },
+    media_stream_constraints={"video": True, "audio": False},  # Chỉ bật video
 )
-
-# Run the WebRTC stream
-webrtc_streamer.start()
-
-
