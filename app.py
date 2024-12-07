@@ -1,14 +1,10 @@
+import cv2
 import numpy as np
 import streamlit as st
 import gdown
-import urllib
-from PIL import Image
-import io
-import os
-import tensorflow as tf
 import streamlit_webrtc as webrtc
-import wave
-import pyaudio
+from av import VideoFrame
+from io import BytesIO
 
 # Đường dẫn đến tệp weights, config, và classes
 weights_file = "yolov3.weights"
@@ -43,7 +39,6 @@ COLORS = np.random.uniform(0, 255, size=(len(classes), 3))
 
 # Tải mô hình YOLO
 net = cv2.dnn.readNet(weights_file, config_file)
-
 # Lấy các layer output
 def get_output_layers(net):
     layer_names = net.getLayerNames()
@@ -64,16 +59,13 @@ object_counts_input = {}
 for obj in object_names:
     object_counts_input[obj] = st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1)
 
-start_button = st.button("Start")
-stop_button = st.button("Stop")
-
-# Đường dẫn âm thanh cảnh báo
 alarm_sound = r"/workspaces/Quynh/police.wav"
 
-# WebRTC config for video stream
-def video_frame_callback(frame):
+# Streamlit WebRTC callback
+def video_frame_callback(frame: VideoFrame):
+    # Convert AV frame to numpy array
     img = frame.to_ndarray(format="bgr24")
-
+    
     height, width, channels = img.shape
     blob = cv2.dnn.blobFromImage(img, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
     net.setInput(blob)
@@ -103,9 +95,7 @@ def video_frame_callback(frame):
     # Áp dụng NMS (Non-Maximum Suppression) để loại bỏ các bounding boxes dư thừa
     indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
 
-    object_found = False
     if len(indices) > 0:
-        object_found = True
         for i in indices.flatten():
             box = boxes[i]
             x, y, w, h = box
@@ -121,7 +111,7 @@ def video_frame_callback(frame):
     for obj in object_names:
         required_count = object_counts_input[obj]
         current_count = detected_objects[obj]
-
+        
         # Nếu số lượng vật thể phát hiện ít hơn yêu cầu, hiển thị cảnh báo
         if required_count > 0 and current_count < required_count:
             missing_object = obj
@@ -135,12 +125,12 @@ def video_frame_callback(frame):
             cv2.putText(img, f"{obj.capitalize()}: {current_count}/{required_count}", (50, 50 + object_names.index(obj) * 30), 
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-        # Cập nhật số lượng vật thể đã phát hiện
-        st.session_state.initial_objects_count[obj] = detected_objects[obj]
+    return VideoFrame.from_ndarray(img, format="bgr24")
 
-    return img
+# Tạo WebRTC context
+st_webrtc = webrtc.StreamlitWebRtc(
+    video_frame_callback=video_frame_callback,
+    media_stream_constraints={"video": True, "audio": False}
+)
 
-# WebRTC video stream UI
-st_webrtc_ctx = webrtc.Streamer(key="yolo-video", video_frame_callback=video_frame_callback)
-
-# Kết thúc Streamlit UI
+st_webrtc.start()
