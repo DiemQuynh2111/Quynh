@@ -5,7 +5,8 @@ import streamlit as st
 import gdown
 import urllib.request
 from av import VideoFrame
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration, RTCIceServer
+from aiortc import RTCConfiguration, RTCIceServer
+from streamlit_webrtc import webrtc_streamer, WebRtcMode
 import streamlit.components.v1 as components
 
 # Đường dẫn đến tệp weights, config, và classes
@@ -65,7 +66,7 @@ for obj in object_names:
     object_counts_input[obj] = st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1)
 
 # Đường dẫn đến tệp âm thanh cảnh báo (nếu cần)
-alarm_sound = "police.wav"  # Đảm bảo tệp âm thanh này được đặt trong thư mục ứng dụng
+alarm_sound = "police.wav"  # Đảm bảo tệp âm thanh này nằm cùng thư mục với app.py
 
 # Thêm âm thanh cảnh báo vào ứng dụng Streamlit
 def play_alarm():
@@ -143,12 +144,12 @@ def video_frame_callback(frame: VideoFrame):
 
         if required_count > 0 and current_count < required_count:
             missing_object = obj
-            cv2.putText(img, f"Warning: {missing_object} Missing!", (50, 50), 
+            cv2.putText(img, f"Warning: {missing_object} Missing!", (50, 50),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
             missing_alert_triggered = True  # Kích hoạt cảnh báo
         elif current_count >= required_count:
-            cv2.putText(img, f"{obj.capitalize()}: {current_count}/{required_count}", 
-                        (50, 50 + object_names.index(obj) * 30), 
+            cv2.putText(img, f"{obj.capitalize()}: {current_count}/{required_count}",
+                        (50, 50 + object_names.index(obj) * 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
     # Nếu cần, gọi hàm JavaScript để phát âm thanh cảnh báo
