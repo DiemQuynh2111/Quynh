@@ -3,6 +3,7 @@ import numpy as np
 import streamlit as st
 import os
 import gdown
+import urllib
 
 # Đường dẫn đến tệp weights, config, và classes
 weights_file = "yolov3.weights"
@@ -37,6 +38,7 @@ COLORS = np.random.uniform(0, 255, size=(len(classes), 3))
 
 # Tải mô hình YOLO
 net = cv2.dnn.readNet(weights_file, config_file)
+
 # Lấy các layer output
 def get_output_layers(net):
     layer_names = net.getLayerNames()
@@ -85,7 +87,6 @@ if stop_button:
     if st.session_state.cap and st.session_state.cap.isOpened():
         st.session_state.cap.release()
         st.session_state.cap = None  # Đặt lại trạng thái camera
-    cv2.destroyAllWindows()
 
 # Vòng lặp xử lý camera
 if st.session_state.is_running:
@@ -159,7 +160,8 @@ if st.session_state.is_running:
             # Cập nhật số lượng vật thể đã phát hiện
             st.session_state.initial_objects_count[obj] = detected_objects[obj]
 
-        cv2.imshow("Object Detection", frame)
+        # Sử dụng Streamlit để hiển thị hình ảnh
+        st.image(frame, channels="BGR", caption="Object Detection", use_column_width=True)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             st.session_state.is_running = False
@@ -168,4 +170,3 @@ if st.session_state.is_running:
     if st.session_state.cap and st.session_state.cap.isOpened():
         st.session_state.cap.release()
         st.session_state.cap = None
-    cv2.destroyAllWindows()
