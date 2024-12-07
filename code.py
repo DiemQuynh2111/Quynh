@@ -1,123 +1,137 @@
-import time
 import cv2
-import argparse
 import numpy as np
-from imutils.video import VideoStream
-import imutils
-import pyglet
+import streamlit as st
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+import os
+import gdown
+import logging
 
-# Cài đặt tham số đọc weight, config và class name
-ap = argparse.ArgumentParser()
-ap.add_argument('-o', '--object_name', required=True,
-                help='path to yolo config file')
-ap.add_argument('-f', '--frame', default=5, type=int,
-                help='path to yolo config file')
-ap.add_argument('-c', '--config', default='yolov3.cfg',
-                help='path to yolo config file')
-ap.add_argument('-w', '--weights', default='yolov3.weights',
-                help='path to yolo pre-trained weights')
-ap.add_argument('-cl', '--classes', default='yolov3.txt',
-                help='path to text file containing class names')
-args = ap.parse_args()
+# Bật chế độ logging để ghi lại thông tin chi tiết khi có lỗi
+logging.basicConfig(level=logging.DEBUG)
 
-# Hàm trả về output layer
-def get_output_layers(net):
-    layer_names = net.getLayerNames()
-    output_layers = [layer_names[i - 1] for i in net.getUnconnectedOutLayers()]
-    return output_layers
+# Kiểm tra và tải tệp yolov3.weights từ Google Drive nếu chưa tồn tại
+weights_file = "yolov3.weights"
+if not os.path.exists(weights_file):
+    drive_url = "https://drive.google.com/uc?id=11rE4um7BB12mtsgiq-D774qprMaRhjpm"
+    st.write("Downloading yolov3.weights from Google Drive...")
+    gdown.download(drive_url, weights_file, quiet=False)
 
-# Hàm vẽ các hình chữ nhật và tên class
-def draw_prediction(img, class_id, x, y, x_plus_w, y_plus_h):
-    label = str(classes[class_id])
-    color = COLORS[class_id]
-    cv2.rectangle(img, (x, y), (x_plus_w, y_plus_h), color, 2)
-    cv2.putText(img, label, (x - 10, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+# Kiểm tra và tải các tệp cấu hình
+config_file = "yolov3.cfg"
+classes_file = "yolov3.txt"
 
-# Đọc từ webcam
-cap  = VideoStream(src=0).start()
+if not os.path.exists(config_file) or not os.path.exists(classes_file):
+    st.error("Tệp cấu hình hoặc tệp classes không tồn tại. Vui lòng kiểm tra lại!")
+    st.stop()
 
-# Đọc tên các class
-classes = None
-with open(args.classes, 'r') as f:
+# Đọc các lớp từ tệp
+with open(classes_file, 'r') as f:
     classes = [line.strip() for line in f.readlines()]
 
+# Tạo màu sắc ngẫu nhiên cho các lớp đối tượng
 COLORS = np.random.uniform(0, 255, size=(len(classes), 3))
-net = cv2.dnn.readNet(args.weights, args.config)
 
-nCount = 0
+# Tải mô hình YOLO
+try:
+    net = cv2.dnn.readNet(weights_file, config_file)
+except Exception as e:
+    st.error(f"Lỗi khi tải mô hình YOLO: {e}")
+    st.stop()
 
-# Bắt đầu đọc từ webcam
-while True:
-    # Đọc frame
-    frame = cap.read()
-    image = imutils.resize(frame, width=600)
+# Hàm lấy các lớp đầu ra từ YOLO
+def get_output_layers(net):
+    layer_names = net.getLayerNames()
+    return [layer_names[i[0] - 1] for i in net.getUnconnectedOutLayers()]
 
-    # Biến theo dõi đối tượng có tồn tại trong khung hình hay không
-    isExist = False
-
-    # Resize và đưa khung hình vào mảng predict
-    Width = image.shape[1]
-    Height = image.shape[0]
-    scale = 0.00392
-    blob = cv2.dnn.blobFromImage(image, scale, (416, 416), (0, 0, 0), True, crop=False)
+# Hàm xử lý YOLO
+def detect_objects(frame, object_names, frame_limit, object_counts_input):
+    if frame is None:
+        return frame  # Bỏ qua nếu khung hình là None
+    
+    height, width, _ = frame.shape
+    blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
     net.setInput(blob)
     outs = net.forward(get_output_layers(net))
 
-    # Lọc các object trong khung hình
     class_ids = []
     confidences = []
     boxes = []
-    conf_threshold = 0.5
-    nms_threshold = 0.4
+    detected_objects = {obj: 0 for obj in object_names}
 
     for out in outs:
         for detection in out:
             scores = detection[5:]
             class_id = np.argmax(scores)
             confidence = scores[class_id]
-            if (confidence > 0.5) and (classes[class_id] == args.object_name):
-                center_x = int(detection[0] * Width)
-                center_y = int(detection[1] * Height)
-                w = int(detection[2] * Width)
-                h = int(detection[3] * Height)
-                x = center_x - w / 2
-                y = center_y - h / 2
-                class_ids.append(class_id)
-                confidences.append(float(confidence))
+            if confidence > 0.5 and classes[class_id].lower() in object_names:
+                center_x = int(detection[0] * width)
+                center_y = int(detection[1] * height)
+                w = int(detection[2] * width)
+                h = int(detection[3] * height)
+                x = int(center_x - w / 2)
+                y = int(center_y - h / 2)
                 boxes.append([x, y, w, h])
+                confidences.append(float(confidence))
+                class_ids.append(class_id)
 
-    indices = cv2.dnn.NMSBoxes(boxes, confidences, conf_threshold, nms_threshold)
+    # Áp dụng Non-Maximum Suppression (NMS)
+    indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
 
-    # Vẽ các khung chữ nhật quanh đối tượng
-    if len(indices) > 0:
-        for i in indices.flatten():
-            box = boxes[i]
-            x = box[0]
-            y = box[1]
-            w = box[2]
-            h = box[3]
-            if classes[class_ids[i]] == args.object_name:
-                isExist = True
-                draw_prediction(image, class_ids[i], round(x), round(y), round(x + w), round(y + h))
+    for i in indices.flatten():
+        box = boxes[i]
+        x, y, w, h = box
+        color = COLORS[class_ids[i]]
+        label = str(classes[class_ids[i]])
+        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+        cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+        detected_objects[classes[class_ids[i]].lower()] += 1
 
-    # Nếu tồn tại đối tượng thì set số frame = 0
-    if isExist:
-        nCount = 0
-    else:
-        # Nếu không tồn tại thì tăng số frame không có đối tượng lên
-        nCount += 1
-        # Nếu quá 5 frame không có thì báo động!
-        if nCount > args.frame:
-            # Hiển thị chữ Alarm
-            cv2.putText(image, "Alarm alarm alarm!", (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-            # Phát file âm thanh
-            music = pyglet.resource.media('police.wav')
-            music.play()
-            # pyglet.app.run()
+    return frame
 
-    cv2.imshow("object detection", image)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
 
-cap.stop()
-cv2.destroyAllWindows()
+# Xác định lớp xử lý video
+class VideoTransformer(VideoTransformerBase):
+    def __init__(self, object_names, frame_limit, object_counts_input):
+        self.object_names = object_names
+        self.frame_limit = frame_limit
+        self.object_counts_input = object_counts_input
+
+    def transform(self, frame):
+        if frame is None:
+            return None  # Trả về None nếu frame là None
+
+        try:
+            frame = cv2.cvtColor(frame.to_ndarray(), cv2.COLOR_BGR2RGB)
+            processed_frame = detect_objects(frame, self.object_names, self.frame_limit, self.object_counts_input)
+            return cv2.cvtColor(processed_frame, cv2.COLOR_RGB2BGR)
+        except Exception as e:
+            st.error(f"Lỗi trong quá trình xử lý video: {e}")
+            return frame.to_ndarray()
+
+
+# Streamlit UI
+st.title("Object Detection with YOLO")
+object_names_input = st.sidebar.text_input('Enter Object Names (comma separated)', 'cell phone,laptop,umbrella')
+object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
+frame_limit = st.sidebar.slider('Set Frame Limit for Alarm', 1, 10, 3)
+
+# Nhập số lượng vật thể cần giám sát
+object_counts_input = {}
+for obj in object_names:
+    object_counts_input[obj] = st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1)
+
+# Khởi chạy camera với streamlit-webrtc
+rtc_configuration = {
+    "iceServers": [
+        {"urls": ["stun:stun.l.google.com:19302"]},  # STUN server của Google
+        # Nếu cần TURN server, bạn có thể thêm vào đây:
+        # {"urls": ["turn:your-turn-server.com"], "username": "your-username", "credential": "your-credential"}
+    ]
+}
+
+webrtc_streamer(
+    key="object-detection",
+    video_processor_factory=lambda: VideoTransformer(object_names, frame_limit, object_counts_input),
+    rtc_configuration=rtc_configuration,
+    media_stream_constraints={"video": True, "audio": False},  # Chỉ bật video
+)
