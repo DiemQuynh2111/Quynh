@@ -1,10 +1,11 @@
+import os
 import cv2
 import numpy as np
 import streamlit as st
 import gdown
 import streamlit_webrtc as webrtc
 from av import VideoFrame
-from io import BytesIO
+import urllib
 
 # Đường dẫn đến tệp weights, config, và classes
 weights_file = "yolov3.weights"
@@ -39,6 +40,7 @@ COLORS = np.random.uniform(0, 255, size=(len(classes), 3))
 
 # Tải mô hình YOLO
 net = cv2.dnn.readNet(weights_file, config_file)
+
 # Lấy các layer output
 def get_output_layers(net):
     layer_names = net.getLayerNames()
@@ -128,9 +130,12 @@ def video_frame_callback(frame: VideoFrame):
     return VideoFrame.from_ndarray(img, format="bgr24")
 
 # Tạo WebRTC context
-st_webrtc = webrtc.StreamlitWebRtc(
+webrtc_streamer = webrtc.StreamlitWebRtc(
     video_frame_callback=video_frame_callback,
     media_stream_constraints={"video": True, "audio": False}
 )
 
-st_webrtc.start()
+# Run the WebRTC stream
+webrtc_streamer.start()
+
+
