@@ -1,36 +1,38 @@
-import os
-import gdown
 import numpy as np
-import pygame
 import streamlit as st
-import cv2
-from streamlit_webrtc import VideoProcessorBase, webrtc_streamer
+import gdown
+import urllib
 from PIL import Image
+import io
+import os
+import tensorflow as tf
+import streamlit_webrtc as webrtc
+import wave
+import pyaudio
 
-# Kiểm tra và tải tệp yolov3.weights từ Google Drive nếu chưa tồn tại
+# Đường dẫn đến tệp weights, config, và classes
 weights_file = "yolov3.weights"
-if not os.path.exists(weights_file):
-    drive_url = "https://drive.google.com/uc?id=11rE4um7BB12mtsgiq-D774qprMaRhjpm"
-    print("Downloading yolov3.weights from Google Drive...")
-    gdown.download(drive_url, weights_file, quiet=False)
-
-# Kiểm tra và tải các tệp cấu hình nếu chưa tồn tại
 config_file = "yolov3.cfg"
-if not os.path.exists(config_file):
-    config_drive_url = "https://drive.google.com/uc?id=1TfzHjG43gxo3s9fXX3-B_iQntYdqOUoH"
-    print("Downloading yolov3.cfg from Google Drive...")
-    gdown.download(config_drive_url, config_file, quiet=False)
-
-# Kiểm tra và tải tệp lớp (classes) nếu chưa tồn tại
 classes_file = "yolov3.txt"
-if not os.path.exists(classes_file):
-    classes_drive_url = "https://drive.google.com/uc?id=1fvce49sV1zK6Pggg8t4vxM3mmBGd6dk2"
-    print("Downloading yolov3.txt from Google Drive...")
-    gdown.download(classes_drive_url, classes_file, quiet=False)
 
-# Cài đặt âm thanh
-pygame.mixer.init()
-alarm_sound = r"D:\AI\Project\police.wav"  # Đảm bảo đường dẫn đến âm thanh là đúng
+# URL cho tệp config và classes
+config_url = "https://raw.githubusercontent.com/pjreddie/darknet/master/cfg/yolov3.cfg"
+classes_url = "https://raw.githubusercontent.com/pjreddie/darknet/master/data/coco.names"
+
+# Kiểm tra và tải tệp weights từ Google Drive nếu không tồn tại
+if not os.path.exists(weights_file):
+    gdown.download("https://drive.google.com/uc?id=1pT0G-Mk9QIbjbOT4WTKEAf4TsmfG7jRD", weights_file, quiet=False)
+    print(f"Downloaded {weights_file}")
+
+# Kiểm tra và tải tệp config nếu không tồn tại
+if not os.path.exists(config_file):
+    urllib.request.urlretrieve(config_url, config_file)
+    print(f"Downloaded {config_file}")
+
+# Kiểm tra và tải tệp classes nếu không tồn tại
+if not os.path.exists(classes_file):
+    urllib.request.urlretrieve(classes_url, classes_file)
+    print(f"Downloaded {classes_file}")
 
 # Đọc các lớp từ tệp
 with open(classes_file, 'r') as f:
@@ -62,80 +64,83 @@ object_counts_input = {}
 for obj in object_names:
     object_counts_input[obj] = st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1)
 
-# Định nghĩa class xử lý video
-class VideoProcessor(VideoProcessorBase):
-    def __init__(self):
-        self.object_not_found_counter = {obj: 0 for obj in object_names}
-        self.initial_objects_count = {obj: 0 for obj in object_names}
+start_button = st.button("Start")
+stop_button = st.button("Stop")
 
-    def recv(self, frame):
-        # Chuyển đổi frame từ video stream sang ảnh
-        img = frame.to_ndarray(format="bgr24")
-        height, width, channels = img.shape
+# Đường dẫn âm thanh cảnh báo
+alarm_sound = r"/workspaces/Quynh/police.wav"
 
-        # Nhận diện đối tượng với YOLO
-        blob = cv2.dnn.blobFromImage(img, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
-        net.setInput(blob)
-        outs = net.forward(get_output_layers(net))
+# WebRTC config for video stream
+def video_frame_callback(frame):
+    img = frame.to_ndarray(format="bgr24")
 
-        class_ids = []
-        confidences = []
-        boxes = []
-        detected_objects = {obj: 0 for obj in object_names}  # Đếm các vật thể đã phát hiện
+    height, width, channels = img.shape
+    blob = cv2.dnn.blobFromImage(img, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+    net.setInput(blob)
+    outs = net.forward(get_output_layers(net))
 
-        for out in outs:
-            for detection in out:
-                scores = detection[5:]
-                class_id = np.argmax(scores)
-                confidence = scores[class_id]
-                if confidence > 0.5 and classes[class_id].lower() in object_names:
-                    center_x = int(detection[0] * width)
-                    center_y = int(detection[1] * height)
-                    w = int(detection[2] * width)
-                    h = int(detection[3] * height)
-                    x = int(center_x - w / 2)
-                    y = int(center_y - h / 2)
-                    boxes.append([x, y, w, h])
-                    confidences.append(float(confidence))
-                    class_ids.append(class_id)
+    class_ids = []
+    confidences = []
+    boxes = []
+    detected_objects = {obj: 0 for obj in object_names}  # Đếm các vật thể đã phát hiện
 
-        # Áp dụng NMS (Non-Maximum Suppression) để loại bỏ các bounding boxes dư thừa
-        indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
+    for out in outs:
+        for detection in out:
+            scores = detection[5:]
+            class_id = np.argmax(scores)
+            confidence = scores[class_id]
+            if confidence > 0.5 and classes[class_id].lower() in object_names:
+                center_x = int(detection[0] * width)
+                center_y = int(detection[1] * height)
+                w = int(detection[2] * width)
+                h = int(detection[3] * height)
+                x = int(center_x - w / 2)
+                y = int(center_y - h / 2)
+                boxes.append([x, y, w, h])
+                confidences.append(float(confidence))
+                class_ids.append(class_id)
 
-        object_found = False
-        if len(indices) > 0:
-            object_found = True
-            for i in indices.flatten():
-                box = boxes[i]
-                x, y, w, h = box
-                color = COLORS[class_ids[i]]
-                label = str(classes[class_ids[i]])
-                cv2.rectangle(img, (x, y), (x + w, y + h), color, 2)
-                cv2.putText(img, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+    # Áp dụng NMS (Non-Maximum Suppression) để loại bỏ các bounding boxes dư thừa
+    indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
 
-                # Cập nhật số lượng vật thể đã phát hiện
-                detected_objects[classes[class_ids[i]].lower()] += 1
-
-        # Kiểm tra số lượng vật thể theo yêu cầu
-        for obj in object_names:
-            required_count = object_counts_input[obj]
-            current_count = detected_objects[obj]
-            
-            # Nếu số lượng vật thể phát hiện ít hơn yêu cầu, hiển thị cảnh báo
-            if required_count > 0 and current_count < required_count:
-                missing_object = obj
-                cv2.putText(img, f"Warning: {missing_object} Missing!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                pygame.mixer.music.load(alarm_sound)
-                pygame.mixer.music.play()
-            elif current_count >= required_count:  # Nếu số lượng vật thể đủ
-                cv2.putText(img, f"{obj.capitalize()}: {current_count}/{required_count}", (50, 50 + object_names.index(obj) * 30), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    object_found = False
+    if len(indices) > 0:
+        object_found = True
+        for i in indices.flatten():
+            box = boxes[i]
+            x, y, w, h = box
+            color = COLORS[class_ids[i]]
+            label = str(classes[class_ids[i]])
+            cv2.rectangle(img, (x, y), (x + w, y + h), color, 2)
+            cv2.putText(img, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
 
             # Cập nhật số lượng vật thể đã phát hiện
-            self.initial_objects_count[obj] = detected_objects[obj]
+            detected_objects[classes[class_ids[i]].lower()] += 1
 
-        # Chuyển đổi ảnh từ BGR sang RGB để Streamlit hiển thị
-        return img
+    # Kiểm tra số lượng vật thể theo yêu cầu
+    for obj in object_names:
+        required_count = object_counts_input[obj]
+        current_count = detected_objects[obj]
 
-# Sử dụng streamlit_webrtc để hiển thị webcam
-webrtc_streamer(key="object-detection", video_processor_factory=VideoProcessor, async_mode=True)
+        # Nếu số lượng vật thể phát hiện ít hơn yêu cầu, hiển thị cảnh báo
+        if required_count > 0 and current_count < required_count:
+            missing_object = obj
+            cv2.putText(img, f"Warning: {missing_object} Missing!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
+            # Phát âm thanh cảnh báo
+            with open(alarm_sound, "rb") as audio_file:
+                audio_bytes = audio_file.read()
+            st.audio(audio_bytes, format="audio/wav")
+        elif current_count >= required_count:  # Nếu số lượng vật thể đủ
+            cv2.putText(img, f"{obj.capitalize()}: {current_count}/{required_count}", (50, 50 + object_names.index(obj) * 30), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+        # Cập nhật số lượng vật thể đã phát hiện
+        st.session_state.initial_objects_count[obj] = detected_objects[obj]
+
+    return img
+
+# WebRTC video stream UI
+st_webrtc_ctx = webrtc.Streamer(key="yolo-video", video_frame_callback=video_frame_callback)
+
+# Kết thúc Streamlit UI
