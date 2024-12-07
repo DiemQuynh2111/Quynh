@@ -2,21 +2,20 @@ import cv2
 import numpy as np
 import streamlit as st
 import os
-import urllib.request
+import gdown
 
-# Đọc các file cấu hình và class
-config_file = r"/workspaces/Quynh/yolov3.cfg"
-weights_file = r"/workspaces/Quynh/yolov3.weights"
-classes_file = r"/workspaces/Quynh/yolov3.txt"
+# Đường dẫn đến tệp weights, config, và classes
+weights_file = "yolov3.weights"
+config_file = "yolov3.cfg"
+classes_file = "yolov3.txt"
 
-# URL cho tệp weights và config nếu không có sẵn
-weights_url = "https://pjreddie.com/media/files/yolov3.weights"
+# URL cho tệp config và classes
 config_url = "https://raw.githubusercontent.com/pjreddie/darknet/master/cfg/yolov3.cfg"
 classes_url = "https://raw.githubusercontent.com/pjreddie/darknet/master/data/coco.names"
 
-# Kiểm tra và tải tệp weights nếu không tồn tại
+# Kiểm tra và tải tệp weights từ Google Drive nếu không tồn tại
 if not os.path.exists(weights_file):
-    urllib.request.urlretrieve(weights_url, weights_file)
+    gdown.download("https://drive.google.com/uc?id=1pT0G-Mk9QIbjbOT4WTKEAf4TsmfG7jRD", weights_file, quiet=False)
     print(f"Downloaded {weights_file}")
 
 # Kiểm tra và tải tệp config nếu không tồn tại
@@ -38,7 +37,6 @@ COLORS = np.random.uniform(0, 255, size=(len(classes), 3))
 
 # Tải mô hình YOLO
 net = cv2.dnn.readNet(weights_file, config_file)
-
 # Lấy các layer output
 def get_output_layers(net):
     layer_names = net.getLayerNames()
