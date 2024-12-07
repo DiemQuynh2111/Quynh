@@ -1,12 +1,11 @@
-import cv2
-import numpy as np
-import gradio as gr
 import os
 import gdown
-import logging
-
-# Cấu hình logging để theo dõi lỗi
-logging.basicConfig(level=logging.DEBUG)
+import numpy as np
+import pygame
+import streamlit as st
+import cv2
+from streamlit_webrtc import VideoProcessorBase, webrtc_streamer
+from PIL import Image
 
 # Kiểm tra và tải tệp yolov3.weights từ Google Drive nếu chưa tồn tại
 weights_file = "yolov3.weights"
@@ -15,13 +14,23 @@ if not os.path.exists(weights_file):
     print("Downloading yolov3.weights from Google Drive...")
     gdown.download(drive_url, weights_file, quiet=False)
 
-# Kiểm tra và tải các tệp cấu hình
+# Kiểm tra và tải các tệp cấu hình nếu chưa tồn tại
 config_file = "yolov3.cfg"
-classes_file = "yolov3.txt"
+if not os.path.exists(config_file):
+    config_drive_url = "https://drive.google.com/uc?id=1TfzHjG43gxo3s9fXX3-B_iQntYdqOUoH"
+    print("Downloading yolov3.cfg from Google Drive...")
+    gdown.download(config_drive_url, config_file, quiet=False)
 
-if not os.path.exists(config_file) or not os.path.exists(classes_file):
-    print("Tệp cấu hình hoặc tệp classes không tồn tại. Vui lòng kiểm tra lại!")
-    exit()
+# Kiểm tra và tải tệp lớp (classes) nếu chưa tồn tại
+classes_file = "yolov3.txt"
+if not os.path.exists(classes_file):
+    classes_drive_url = "https://drive.google.com/uc?id=1fvce49sV1zK6Pggg8t4vxM3mmBGd6dk2"
+    print("Downloading yolov3.txt from Google Drive...")
+    gdown.download(classes_drive_url, classes_file, quiet=False)
+
+# Cài đặt âm thanh
+pygame.mixer.init()
+alarm_sound = r"D:\AI\Project\police.wav"  # Đảm bảo đường dẫn đến âm thanh là đúng
 
 # Đọc các lớp từ tệp
 with open(classes_file, 'r') as f:
@@ -31,96 +40,102 @@ with open(classes_file, 'r') as f:
 COLORS = np.random.uniform(0, 255, size=(len(classes), 3))
 
 # Tải mô hình YOLO
-try:
-    net = cv2.dnn.readNet(weights_file, config_file)
-except Exception as e:
-    print(f"Lỗi khi tải mô hình YOLO: {e}")
-    exit()
+net = cv2.dnn.readNet(weights_file, config_file)
 
-# Hàm lấy các lớp đầu ra từ YOLO
+# Lấy các layer output
 def get_output_layers(net):
     layer_names = net.getLayerNames()
-    return [layer_names[i[0] - 1] for i in net.getUnconnectedOutLayers()]
+    unconnected_out_layers = net.getUnconnectedOutLayers()
+    if isinstance(unconnected_out_layers, np.ndarray) and unconnected_out_layers.ndim == 1:
+        return [layer_names[i - 1] for i in unconnected_out_layers]
+    else:
+        return [layer_names[i[0] - 1] for i in unconnected_out_layers]
 
-# Hàm xử lý YOLO
-def detect_objects(frame, object_names, frame_limit, object_counts_input):
-    if frame is None:
-        return frame  # Bỏ qua nếu khung hình là None
-    
-    height, width, _ = frame.shape
-    blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
-    net.setInput(blob)
-    outs = net.forward(get_output_layers(net))
+# Streamlit UI
+st.title("Object Detection with YOLO")
+object_names_input = st.sidebar.text_input('Enter Object Names (comma separated)', 'cell phone,laptop,umbrella')
+object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
+frame_limit = st.sidebar.slider('Set Frame Limit for Alarm', 1, 10, 3)
 
-    class_ids = []
-    confidences = []
-    boxes = []
-    detected_objects = {obj: 0 for obj in object_names}
+# Nhập số lượng vật thể cần giám sát
+object_counts_input = {}
+for obj in object_names:
+    object_counts_input[obj] = st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1)
 
-    for out in outs:
-        for detection in out:
-            scores = detection[5:]
-            class_id = np.argmax(scores)
-            confidence = scores[class_id]
-            if confidence > 0.5 and classes[class_id].lower() in object_names:
-                center_x = int(detection[0] * width)
-                center_y = int(detection[1] * height)
-                w = int(detection[2] * width)
-                h = int(detection[3] * height)
-                x = int(center_x - w / 2)
-                y = int(center_y - h / 2)
-                boxes.append([x, y, w, h])
-                confidences.append(float(confidence))
-                class_ids.append(class_id)
+# Định nghĩa class xử lý video
+class VideoProcessor(VideoProcessorBase):
+    def __init__(self):
+        self.object_not_found_counter = {obj: 0 for obj in object_names}
+        self.initial_objects_count = {obj: 0 for obj in object_names}
 
-    # Áp dụng Non-Maximum Suppression (NMS)
-    indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
+    def recv(self, frame):
+        # Chuyển đổi frame từ video stream sang ảnh
+        img = frame.to_ndarray(format="bgr24")
+        height, width, channels = img.shape
 
-    for i in indices.flatten():
-        box = boxes[i]
-        x, y, w, h = box
-        color = COLORS[class_ids[i]]
-        label = str(classes[class_ids[i]])
-        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-        cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-        detected_objects[classes[class_ids[i]].lower()] += 1
+        # Nhận diện đối tượng với YOLO
+        blob = cv2.dnn.blobFromImage(img, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+        net.setInput(blob)
+        outs = net.forward(get_output_layers(net))
 
-    return frame
+        class_ids = []
+        confidences = []
+        boxes = []
+        detected_objects = {obj: 0 for obj in object_names}  # Đếm các vật thể đã phát hiện
 
-# Hàm để xử lý video trong Gradio
-def video_processing(frame, object_names, frame_limit, object_counts_input):
-    if frame is None:
-        return frame  # Trả về None nếu frame là None
+        for out in outs:
+            for detection in out:
+                scores = detection[5:]
+                class_id = np.argmax(scores)
+                confidence = scores[class_id]
+                if confidence > 0.5 and classes[class_id].lower() in object_names:
+                    center_x = int(detection[0] * width)
+                    center_y = int(detection[1] * height)
+                    w = int(detection[2] * width)
+                    h = int(detection[3] * height)
+                    x = int(center_x - w / 2)
+                    y = int(center_y - h / 2)
+                    boxes.append([x, y, w, h])
+                    confidences.append(float(confidence))
+                    class_ids.append(class_id)
 
-    try:
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Đổi từ BGR sang RGB
-        processed_frame = detect_objects(frame, object_names, frame_limit, object_counts_input)
-        return cv2.cvtColor(processed_frame, cv2.COLOR_RGB2BGR)  # Đổi lại từ RGB sang BGR
-    except Exception as e:
-        print(f"Lỗi trong quá trình xử lý video: {e}")
-        return frame
+        # Áp dụng NMS (Non-Maximum Suppression) để loại bỏ các bounding boxes dư thừa
+        indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
 
-# Tạo giao diện Gradio
-def create_interface():
-    # Stream video từ webcam
-    video_input = gr.inputs.Video(source="webcam", type="numpy")  # Nhận input video từ webcam
-    video_output = gr.outputs.Video(type="numpy")  # Đầu ra video đã xử lý
+        object_found = False
+        if len(indices) > 0:
+            object_found = True
+            for i in indices.flatten():
+                box = boxes[i]
+                x, y, w, h = box
+                color = COLORS[class_ids[i]]
+                label = str(classes[class_ids[i]])
+                cv2.rectangle(img, (x, y), (x + w, y + h), color, 2)
+                cv2.putText(img, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
 
-    # Các tham số đầu vào từ người dùng
-    object_names_input = gr.inputs.Textbox(default="cell phone,laptop,umbrella", label="Enter Object Names (comma separated)")
-    frame_limit = gr.inputs.Slider(minimum=1, maximum=10, default=3, label="Set Frame Limit for Alarm")
+                # Cập nhật số lượng vật thể đã phát hiện
+                detected_objects[classes[class_ids[i]].lower()] += 1
 
-    # Nhập số lượng vật thể cần giám sát
-    object_counts_input = gr.inputs.Textbox(default="cell phone:1,laptop:1,umbrella:1", label="Enter number of objects to monitor (comma separated)")
+        # Kiểm tra số lượng vật thể theo yêu cầu
+        for obj in object_names:
+            required_count = object_counts_input[obj]
+            current_count = detected_objects[obj]
+            
+            # Nếu số lượng vật thể phát hiện ít hơn yêu cầu, hiển thị cảnh báo
+            if required_count > 0 and current_count < required_count:
+                missing_object = obj
+                cv2.putText(img, f"Warning: {missing_object} Missing!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                pygame.mixer.music.load(alarm_sound)
+                pygame.mixer.music.play()
+            elif current_count >= required_count:  # Nếu số lượng vật thể đủ
+                cv2.putText(img, f"{obj.capitalize()}: {current_count}/{required_count}", (50, 50 + object_names.index(obj) * 30), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-    # Tạo giao diện Gradio
-    iface = gr.Interface(fn=video_processing, 
-                         inputs=[video_input, object_names_input, frame_limit, object_counts_input], 
-                         outputs=video_output,
-                         live=True)
+            # Cập nhật số lượng vật thể đã phát hiện
+            self.initial_objects_count[obj] = detected_objects[obj]
 
-    iface.launch()
+        # Chuyển đổi ảnh từ BGR sang RGB để Streamlit hiển thị
+        return img
 
-# Khởi chạy giao diện
-if __name__ == "__main__":
-    create_interface()
+# Sử dụng streamlit_webrtc để hiển thị webcam
+webrtc_streamer(key="object-detection", video_processor_factory=VideoProcessor, async_mode=True)
