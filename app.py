@@ -1,11 +1,33 @@
 import cv2
 import numpy as np
 import streamlit as st
+import os
+import urllib.request
 
 # Đọc các file cấu hình và class
 config_file = r"/workspaces/Quynh/yolov3.cfg"
 weights_file = r"/workspaces/Quynh/yolov3.weights"
 classes_file = "yolov3.txt"
+
+# URL cho tệp weights và config nếu không có sẵn
+weights_url = "https://pjreddie.com/media/files/yolov3.weights"
+config_url = "https://raw.githubusercontent.com/pjreddie/darknet/master/cfg/yolov3.cfg"
+classes_url = "https://raw.githubusercontent.com/pjreddie/darknet/master/data/coco.names"
+
+# Kiểm tra và tải tệp weights nếu không tồn tại
+if not os.path.exists(weights_file):
+    urllib.request.urlretrieve(weights_url, weights_file)
+    print(f"Downloaded {weights_file}")
+
+# Kiểm tra và tải tệp config nếu không tồn tại
+if not os.path.exists(config_file):
+    urllib.request.urlretrieve(config_url, config_file)
+    print(f"Downloaded {config_file}")
+
+# Kiểm tra và tải tệp classes nếu không tồn tại
+if not os.path.exists(classes_file):
+    urllib.request.urlretrieve(classes_url, classes_file)
+    print(f"Downloaded {classes_file}")
 
 # Đọc các lớp từ tệp
 with open(classes_file, 'r') as f:
