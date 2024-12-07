@@ -1,19 +1,18 @@
 import cv2
 import numpy as np
-import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+import gradio as gr
 import os
 import gdown
 import logging
 
-# Bật chế độ logging để ghi lại thông tin chi tiết khi có lỗi
+# Cấu hình logging để theo dõi lỗi
 logging.basicConfig(level=logging.DEBUG)
 
 # Kiểm tra và tải tệp yolov3.weights từ Google Drive nếu chưa tồn tại
 weights_file = "yolov3.weights"
 if not os.path.exists(weights_file):
     drive_url = "https://drive.google.com/uc?id=11rE4um7BB12mtsgiq-D774qprMaRhjpm"
-    st.write("Downloading yolov3.weights from Google Drive...")
+    logging.info("Downloading yolov3.weights from Google Drive...")
     gdown.download(drive_url, weights_file, quiet=False)
 
 # Kiểm tra và tải các tệp cấu hình
@@ -21,8 +20,8 @@ config_file = "yolov3.cfg"
 classes_file = "yolov3.txt"
 
 if not os.path.exists(config_file) or not os.path.exists(classes_file):
-    st.error("Tệp cấu hình hoặc tệp classes không tồn tại. Vui lòng kiểm tra lại!")
-    st.stop()
+    logging.error("Tệp cấu hình hoặc tệp classes không tồn tại. Vui lòng kiểm tra lại!")
+    raise FileNotFoundError("Tệp cấu hình hoặc tệp classes không tồn tại.")
 
 # Đọc các lớp từ tệp
 with open(classes_file, 'r') as f:
@@ -35,8 +34,8 @@ COLORS = np.random.uniform(0, 255, size=(len(classes), 3))
 try:
     net = cv2.dnn.readNet(weights_file, config_file)
 except Exception as e:
-    st.error(f"Lỗi khi tải mô hình YOLO: {e}")
-    st.stop()
+    logging.error(f"Lỗi khi tải mô hình YOLO: {e}")
+    raise
 
 # Hàm lấy các lớp đầu ra từ YOLO
 def get_output_layers(net):
@@ -88,50 +87,34 @@ def detect_objects(frame, object_names, frame_limit, object_counts_input):
 
     return frame
 
+# Hàm xử lý webcam và nhận diện đối tượng
+def process_video(object_names_input, frame_limit, object_counts_input, video_input):
+    object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
+    frame = cv2.cvtColor(video_input, cv2.COLOR_BGR2RGB)
+    processed_frame = detect_objects(frame, object_names, frame_limit, object_counts_input)
+    return cv2.cvtColor(processed_frame, cv2.COLOR_RGB2BGR)
 
-# Xác định lớp xử lý video
-class VideoTransformer(VideoTransformerBase):
-    def __init__(self, object_names, frame_limit, object_counts_input):
-        self.object_names = object_names
-        self.frame_limit = frame_limit
-        self.object_counts_input = object_counts_input
+# UI với Gradio
+def run_gradio_interface():
+    # Nhập thông tin từ người dùng
+    object_names_input = gr.Textbox(label="Enter Object Names (comma separated)", value="cell phone,laptop,umbrella")
+    frame_limit = gr.Slider(label="Set Frame Limit for Alarm", minimum=1, maximum=10, value=3)
+    
+    # Nhập số lượng vật thể cần giám sát
+    object_counts_input = {}
+    for obj in object_names_input.split(','):
+        object_counts_input[obj.strip().lower()] = 0
+    
+    video_input = gr.Video(label="Upload or stream from webcam", source="webcam", type="numpy")
+    
+    # Chạy Gradio interface
+    interface = gr.Interface(
+        fn=process_video,
+        inputs=[object_names_input, frame_limit, object_counts_input, video_input],
+        outputs=gr.Video(),
+        live=True
+    )
+    interface.launch()
 
-    def transform(self, frame):
-        if frame is None:
-            return None  # Trả về None nếu frame là None
-
-        try:
-            frame = cv2.cvtColor(frame.to_ndarray(), cv2.COLOR_BGR2RGB)
-            processed_frame = detect_objects(frame, self.object_names, self.frame_limit, self.object_counts_input)
-            return cv2.cvtColor(processed_frame, cv2.COLOR_RGB2BGR)
-        except Exception as e:
-            st.error(f"Lỗi trong quá trình xử lý video: {e}")
-            return frame.to_ndarray()
-
-
-# Streamlit UI
-st.title("Object Detection with YOLO")
-object_names_input = st.sidebar.text_input('Enter Object Names (comma separated)', 'cell phone,laptop,umbrella')
-object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
-frame_limit = st.sidebar.slider('Set Frame Limit for Alarm', 1, 10, 3)
-
-# Nhập số lượng vật thể cần giám sát
-object_counts_input = {}
-for obj in object_names:
-    object_counts_input[obj] = st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1)
-
-# Khởi chạy camera với streamlit-webrtc
-rtc_configuration = {
-    "iceServers": [
-        {"urls": ["stun:stun.l.google.com:19302"]},  # STUN server của Google
-        # Nếu cần TURN server, bạn có thể thêm vào đây:
-        # {"urls": ["turn:your-turn-server.com"], "username": "your-username", "credential": "your-credential"}
-    ]
-}
-
-webrtc_streamer(
-    key="object-detection",
-    video_processor_factory=lambda: VideoTransformer(object_names, frame_limit, object_counts_input),
-    rtc_configuration=rtc_configuration,
-    media_stream_constraints={"video": True, "audio": False},  # Chỉ bật video
-)
+if __name__ == "__main__":
+    run_gradio_interface()
