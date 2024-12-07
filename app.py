@@ -4,6 +4,10 @@ import streamlit as st
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 import os
 import gdown
+import logging
+
+# Cấu hình logging để theo dõi lỗi
+logging.basicConfig(level=logging.DEBUG)
 
 # Kiểm tra và tải tệp yolov3.weights từ Google Drive nếu chưa tồn tại
 weights_file = "yolov3.weights"
@@ -84,7 +88,6 @@ def detect_objects(frame, object_names, frame_limit, object_counts_input):
 
     return frame
 
-
 # Xác định lớp xử lý video
 class VideoTransformer(VideoTransformerBase):
     def __init__(self, object_names, frame_limit, object_counts_input):
@@ -102,8 +105,8 @@ class VideoTransformer(VideoTransformerBase):
             return cv2.cvtColor(processed_frame, cv2.COLOR_RGB2BGR)
         except Exception as e:
             st.error(f"Lỗi trong quá trình xử lý video: {e}")
+            logging.error(f"Lỗi trong quá trình xử lý video: {e}")
             return frame.to_ndarray()
-
 
 # Streamlit UI
 st.title("Object Detection with YOLO")
@@ -116,12 +119,18 @@ object_counts_input = {}
 for obj in object_names:
     object_counts_input[obj] = st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1)
 
+# Cấu hình WebRTC
+rtc_configuration = {
+    "iceServers": [
+        {"urls": ["stun:stun.l.google.com:19302"]},  # STUN server của Google
+        {"urls": ["turn:your-turn-server.com"], "username": "your-username", "credential": "your-credential"}  # TURN server nếu cần thiết
+    ]
+}
+
 # Khởi chạy camera với streamlit-webrtc
 webrtc_streamer(
     key="object-detection",
     video_processor_factory=lambda: VideoTransformer(object_names, frame_limit, object_counts_input),
-    rtc_configuration={
-        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-    },
+    rtc_configuration=rtc_configuration,
     media_stream_constraints={"video": True, "audio": False},  # Chỉ bật video
 )
