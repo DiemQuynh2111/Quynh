@@ -1,10 +1,7 @@
-import os
 import cv2
 import numpy as np
 import streamlit as st
 import gdown
-import streamlit_webrtc as webrtc
-from av import VideoFrame
 import urllib
 
 # Đường dẫn đến tệp weights, config, và classes
@@ -63,11 +60,20 @@ for obj in object_names:
 
 alarm_sound = r"/workspaces/Quynh/police.wav"
 
-# Streamlit WebRTC callback
-def video_frame_callback(frame: VideoFrame):
-    # Convert AV frame to numpy array
-    img = frame.to_ndarray(format="bgr24")
+# Đọc video trực tiếp từ webcam
+cap = cv2.VideoCapture(0)  # Đọc từ webcam
+
+if not cap.isOpened():
+    st.error("Unable to access webcam")
+
+# Hiển thị video và xử lý từng frame
+while True:
+    ret, img = cap.read()
+    if not ret:
+        st.error("Failed to grab frame")
+        break
     
+    # Xử lý hình ảnh và phát hiện đối tượng
     height, width, channels = img.shape
     blob = cv2.dnn.blobFromImage(img, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
     net.setInput(blob)
@@ -109,32 +115,7 @@ def video_frame_callback(frame: VideoFrame):
             # Cập nhật số lượng vật thể đã phát hiện
             detected_objects[classes[class_ids[i]].lower()] += 1
 
-    # Kiểm tra số lượng vật thể theo yêu cầu
-    for obj in object_names:
-        required_count = object_counts_input[obj]
-        current_count = detected_objects[obj]
-        
-        # Nếu số lượng vật thể phát hiện ít hơn yêu cầu, hiển thị cảnh báo
-        if required_count > 0 and current_count < required_count:
-            missing_object = obj
-            cv2.putText(img, f"Warning: {missing_object} Missing!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+    # Hiển thị kết quả lên Streamlit
+    st.image(img, channels="BGR", use_column_width=True)
 
-            # Phát âm thanh cảnh báo
-            with open(alarm_sound, "rb") as audio_file:
-                audio_bytes = audio_file.read()
-            st.audio(audio_bytes, format="audio/wav")
-        elif current_count >= required_count:  # Nếu số lượng vật thể đủ
-            cv2.putText(img, f"{obj.capitalize()}: {current_count}/{required_count}", (50, 50 + object_names.index(obj) * 30), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-
-    return VideoFrame.from_ndarray(img, format="bgr24")
-
-# Tạo WebRTC context đúng cách với webrtc_streamer
-webrtc_streamer = webrtc.webrtc_streamer(
-    key="video-frame",  # Đảm bảo key duy nhất
-    video_frame_callback=video_frame_callback,
-    media_stream_constraints={"video": True, "audio": False}
-)
-
-# Chạy Streamlit WebRTC
-webrtc_streamer.run()
+cap.release()  # Thả webcam khi xong
