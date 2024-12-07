@@ -92,9 +92,6 @@ if 'alert' not in st.session_state:
 if 'thread_running' not in st.session_state:
     st.session_state.thread_running = False
 
-# Placeholder để hiển thị video
-frame_placeholder = st.empty()
-
 # Button để bắt đầu và dừng phát hiện
 start_button = st.button("Bắt Đầu Phát Hiện")
 stop_button = st.button("Dừng Phát Hiện")
@@ -181,24 +178,22 @@ def detect_objects(video_source):
             st.session_state.alert = False
 
         # Nếu cần, gọi hàm JavaScript để phát âm thanh cảnh báo
-        if st.session_state.alert:
-            st.session_state.thread_running = True
-            play_alarm()
+        if missing_alert_triggered:
+            components.html("<script>playAlarm();</script>", height=0)
 
         # Hiển thị khung hình trong Streamlit
-        frame_placeholder.image(frame, channels="BGR", use_column_width=True)
+        st.image(frame, channels="BGR", use_column_width=True)
+
+        # Giới hạn tốc độ khung hình
+        time.sleep(0.03)  # Khoảng 30 FPS
 
     cap.release()
 
-# Chạy phát hiện đối tượng khi nhấn nút "Bắt Đầu Phát Hiện"
-if start_button:
-    st.session_state.running = True
-    if not st.session_state.thread_running:
-        threading.Thread(target=detect_objects, args=(0,)).start()
+# Sử dụng Streamlit Camera Input (webcam)
+camera_input = st.camera_input("Chọn Hình Ảnh Từ Webcam")
 
-# Dừng phát hiện khi nhấn nút "Dừng Phát Hiện"
-if stop_button:
-    st.session_state.running = False
-    st.session_state.thread_running = False
-    st.session_state.alert = False
-    frame_placeholder.empty()
+if camera_input:
+    # Chạy phát hiện đối tượng trên hình ảnh từ webcam
+    st.session_state.running = True
+    detect_objects(camera_input)
+
