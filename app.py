@@ -84,11 +84,11 @@ def play_alarm():
         height=0,
     )
 
-play_alarm()
-
 # Khởi tạo session_state để lưu trữ trạng thái cảnh báo và thread
 if 'alert' not in st.session_state:
     st.session_state.alert = False
+if 'running' not in st.session_state:
+    st.session_state.running = False
 if 'thread_running' not in st.session_state:
     st.session_state.thread_running = False
 
@@ -182,7 +182,6 @@ def detect_objects(video_source):
 
         # Nếu cần, gọi hàm JavaScript để phát âm thanh cảnh báo
         if missing_alert_triggered:
-            # Gọi hàm JavaScript để phát âm thanh cảnh báo
             components.html("<script>playAlarm();</script>", height=0)
 
         # Hiển thị khung hình trong Streamlit
@@ -193,39 +192,3 @@ def detect_objects(video_source):
 
     cap.release()
 
-# Sử dụng thread để chạy hàm phát hiện đối tượng mà không bị chặn giao diện Streamlit
-if start_button and not st.session_state.running:
-    st.session_state.running = True
-    st.session_state.thread_running = True
-    thread = threading.Thread(target=detect_objects, args=(0,), daemon=True)
-    thread.start()
-
-if stop_button and st.session_state.running:
-    st.session_state.running = False
-    st.session_state.thread_running = False
-
-# Nếu bạn muốn hỗ trợ tải lên tệp video, thêm phần này:
-st.sidebar.header("Hoặc Tải Lên Tệp Video")
-
-uploaded_file = st.sidebar.file_uploader("Chọn một tệp video để phát hiện đối tượng", type=["mp4", "avi", "mov"])
-
-if uploaded_file is not None:
-    # Lưu tệp video tạm thời
-    tfile = tempfile.NamedTemporaryFile(delete=False)
-    tfile.write(uploaded_file.read())
-    video_path = tfile.name
-
-    if st.sidebar.button("Phát Hiện Đối Tượng Trên Video"):
-        if st.session_state.running:
-            st.warning("Ứng dụng đang chạy quá trình phát hiện. Vui lòng dừng trước khi chạy lại.")
-        else:
-            st.session_state.running = True
-            st.session_state.thread_running = True
-            thread = threading.Thread(target=detect_objects, args=(video_path,), daemon=True)
-            thread.start()
-
-# Hiển thị cảnh báo và phát âm thanh nếu cần
-if st.session_state.alert:
-    st.warning("Warning: Một hoặc nhiều đối tượng đang thiếu!")
-    # Gọi hàm JavaScript để phát âm thanh cảnh báo
-    components.html("<script>playAlarm();</script>", height=0)
