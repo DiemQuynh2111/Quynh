@@ -4,6 +4,7 @@ numpy
 streamlit-webrtc
 gdown
 gradio
+pygame
 
 
 
