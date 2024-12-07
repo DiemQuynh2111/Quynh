@@ -84,11 +84,11 @@ def play_alarm():
         height=0,
     )
 
+play_alarm()
+
 # Khởi tạo session_state để lưu trữ trạng thái cảnh báo và thread
 if 'alert' not in st.session_state:
     st.session_state.alert = False
-if 'running' not in st.session_state:
-    st.session_state.running = False
 if 'thread_running' not in st.session_state:
     st.session_state.thread_running = False
 
@@ -181,14 +181,24 @@ def detect_objects(video_source):
             st.session_state.alert = False
 
         # Nếu cần, gọi hàm JavaScript để phát âm thanh cảnh báo
-        if missing_alert_triggered:
-            components.html("<script>playAlarm();</script>", height=0)
+        if st.session_state.alert:
+            st.session_state.thread_running = True
+            play_alarm()
 
         # Hiển thị khung hình trong Streamlit
         frame_placeholder.image(frame, channels="BGR", use_column_width=True)
 
-        # Giới hạn tốc độ khung hình
-        time.sleep(0.03)  # Khoảng 30 FPS
-
     cap.release()
 
+# Chạy phát hiện đối tượng khi nhấn nút "Bắt Đầu Phát Hiện"
+if start_button:
+    st.session_state.running = True
+    if not st.session_state.thread_running:
+        threading.Thread(target=detect_objects, args=(0,)).start()
+
+# Dừng phát hiện khi nhấn nút "Dừng Phát Hiện"
+if stop_button:
+    st.session_state.running = False
+    st.session_state.thread_running = False
+    st.session_state.alert = False
+    frame_placeholder.empty()
