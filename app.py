@@ -19,17 +19,17 @@ classes_url = "https://raw.githubusercontent.com/pjreddie/darknet/master/data/co
 # Kiểm tra và tải tệp weights từ Google Drive nếu không tồn tại
 if not os.path.exists(weights_file):
     gdown.download("https://drive.google.com/uc?id=1pT0G-Mk9QIbjbOT4WTKEAf4TsmfG7jRD", weights_file, quiet=False)
-    st.write(f"Downloaded {weights_file}")
+    st.write(f"Đã tải xuống {weights_file}")
 
 # Kiểm tra và tải tệp config nếu không tồn tại
 if not os.path.exists(config_file):
     urllib.request.urlretrieve(config_url, config_file)
-    st.write(f"Downloaded {config_file}")
+    st.write(f"Đã tải xuống {config_file}")
 
 # Kiểm tra và tải tệp classes nếu không tồn tại
 if not os.path.exists(classes_file):
     urllib.request.urlretrieve(classes_url, classes_file)
-    st.write(f"Downloaded {classes_file}")
+    st.write(f"Đã tải xuống {classes_file}")
 
 # Đọc các lớp từ tệp
 with open(classes_file, 'r') as f:
@@ -51,17 +51,17 @@ def get_output_layers(net):
         return [layer_names[i[0] - 1] for i in unconnected_out_layers]
 
 # Streamlit UI
-st.title("Object Detection with YOLO")
+st.title("Phát Hiện Đối Tượng với YOLO")
 
 # Sidebar để nhập tên đối tượng và số lượng cần giám sát
-object_names_input = st.sidebar.text_input('Enter Object Names (comma separated)', 'cell phone,laptop,umbrella')
+object_names_input = st.sidebar.text_input('Nhập Tên Đối Tượng (cách nhau bằng dấu phẩy)', 'cell phone,laptop,umbrella')
 object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
-frame_limit = st.sidebar.slider('Set Frame Limit for Alarm', 1, 10, 3)
+frame_limit = st.sidebar.slider('Đặt Giới Hạn Khung Hình cho Cảnh Báo', 1, 10, 3)
 
 # Nhập số lượng vật thể cần giám sát
 object_counts_input = {}
 for obj in object_names:
-    object_counts_input[obj] = st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1)
+    object_counts_input[obj] = st.sidebar.number_input(f'Nhập số lượng {obj} cần giám sát', min_value=0, value=0, step=1)
 
 # Đường dẫn đến tệp âm thanh cảnh báo (nếu cần)
 alarm_sound = "police.wav"  # Đảm bảo tệp âm thanh này nằm cùng thư mục với app.py
@@ -88,8 +88,8 @@ play_alarm()
 frame_placeholder = st.empty()
 
 # Button để bắt đầu và dừng phát hiện
-start_button = st.button("Start Detection")
-stop_button = st.button("Stop Detection")
+start_button = st.button("Bắt Đầu Phát Hiện")
+stop_button = st.button("Dừng Phát Hiện")
 
 # Sử dụng Session State để quản lý trạng thái phát hiện
 if 'running' not in st.session_state:
