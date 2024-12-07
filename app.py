@@ -1,7 +1,8 @@
 import cv2
 import numpy as np
 import streamlit as st
-import time
+from streamlit_webrtc import webrtc_streamer
+import av
 
 # Đường dẫn đến tệp weights, config và class names
 weights_file = "yolov3.weights"
@@ -34,70 +35,61 @@ def get_output_layers(net):
     return [layer_names[i - 1] for i in unconnected_out_layers]
 
 # Hàm phát hiện đối tượng
-def detect_objects_from_webcam():
-    cap = cv2.VideoCapture(0, cv2.CAP_V4L2)  # Sử dụng API V4L2 cho Linux
+def detect_objects_from_frame(frame):
+    height, width, channels = frame.shape
 
-    if not cap.isOpened():
-        st.error("Không thể mở webcam. Kiểm tra quyền truy cập hoặc thử chỉ số camera khác.")
-        return
+    # Phát hiện đối tượng
+    blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+    net.setInput(blob)
+    outs = net.forward(get_output_layers(net))
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            st.error("Không thể nhận khung hình từ webcam.")
-            break
+    class_ids = []
+    confidences = []
+    boxes = []
 
-        height, width, channels = frame.shape
+    for out in outs:
+        for detection in out:
+            scores = detection[5:]
+            class_id = np.argmax(scores)
+            confidence = scores[class_id]
+            if confidence > 0.5:
+                center_x = int(detection[0] * width)
+                center_y = int(detection[1] * height)
+                w = int(detection[2] * width)
+                h = int(detection[3] * height)
+                x = int(center_x - w / 2)
+                y = int(center_y - h / 2)
+                boxes.append([x, y, w, h])
+                confidences.append(float(confidence))
+                class_ids.append(class_id)
 
-        # Phát hiện đối tượng
-        blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
-        net.setInput(blob)
-        outs = net.forward(get_output_layers(net))
+    # Áp dụng NMS (Non-Maximum Suppression)
+    indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
 
-        class_ids = []
-        confidences = []
-        boxes = []
+    if len(indices) > 0:
+        for i in indices.flatten():
+            box = boxes[i]
+            x, y, w, h = box
+            color = COLORS[class_ids[i]]
+            label = str(classes[class_ids[i]])
+            cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+            cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
 
-        for out in outs:
-            for detection in out:
-                scores = detection[5:]
-                class_id = np.argmax(scores)
-                confidence = scores[class_id]
-                if confidence > 0.5:
-                    center_x = int(detection[0] * width)
-                    center_y = int(detection[1] * height)
-                    w = int(detection[2] * width)
-                    h = int(detection[3] * height)
-                    x = int(center_x - w / 2)
-                    y = int(center_y - h / 2)
-                    boxes.append([x, y, w, h])
-                    confidences.append(float(confidence))
-                    class_ids.append(class_id)
+    return frame
 
-        # Áp dụng NMS (Non-Maximum Suppression)
-        indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
-
-        if len(indices) > 0:
-            for i in indices.flatten():
-                box = boxes[i]
-                x, y, w, h = box
-                color = COLORS[class_ids[i]]
-                label = str(classes[class_ids[i]])
-                cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-                cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-
-        # Hiển thị khung hình
-        st.image(frame, channels="BGR", use_column_width=True)
-
-        # Giới hạn tốc độ khung hình
-        time.sleep(0.03)
-
-    cap.release()
+# WebRTC callback function to handle webcam stream
+def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
+    # Chuyển đổi frame từ WebRTC (hình ảnh dạng YUV) sang BGR (OpenCV yêu cầu)
+    img = frame.to_ndarray(format="bgr24")
+    
+    # Nhận diện đối tượng trên frame
+    img = detect_objects_from_frame(img)
+    
+    # Trả về frame đã xử lý
+    return av.VideoFrame.from_ndarray(img, format="bgr24")
 
 # Streamlit UI
-st.title("Phát Hiện Đối Tượng với YOLO")
+st.title("Phát Hiện Đối Tượng với YOLO và Webcam")
 
-# Button để bắt đầu nhận diện đối tượng
-if st.button("Bắt Đầu Phát Hiện"):
-    detect_objects_from_webcam()
-
+# Bắt đầu Streamlit WebRTC
+webrtc_streamer(key="object-detection", video_frame_callback=video_frame_callback)
