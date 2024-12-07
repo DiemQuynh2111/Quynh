@@ -4,8 +4,9 @@ numpy
 streamlit-webrtc
 gdown
 gradio
-pygame
-
+tensorflow
+Pillow
+pyaudio
 
 
 
