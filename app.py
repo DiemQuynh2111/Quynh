@@ -67,25 +67,42 @@ def detect_objects_from_frame(frame):
     # Áp dụng NMS (Non-Maximum Suppression)
     indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
 
-    if len(indices) > 0:
-        for i in indices.flatten():
-            box = boxes[i]
-            x, y, w, h = box
-            color = COLORS[class_ids[i]]
-            label = str(classes[class_ids[i]])
-            cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-            cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-
-    return frame
+    return indices, boxes, class_ids
 
 # WebRTC callback function to handle webcam stream
 def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
     # Chuyển đổi frame từ WebRTC (hình ảnh dạng YUV) sang BGR (OpenCV yêu cầu)
     img = frame.to_ndarray(format="bgr24")
-    
+
     # Nhận diện đối tượng trên frame
-    img = detect_objects_from_frame(img)
+    indices, boxes, class_ids = detect_objects_from_frame(img)
     
+    # Kiểm tra đối tượng và hiển thị cảnh báo nếu cần thiết
+    object_names_input = st.sidebar.text_input('Enter Object Names (comma separated)', 'cell phone,laptop,umbrella')
+    object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
+    object_counts_input = {obj: st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1) for obj in object_names}
+
+    detected_objects = {obj: 0 for obj in object_names}
+
+    for i in indices.flatten():
+        box = boxes[i]
+        class_id = class_ids[i]
+        label = str(classes[class_id]).lower()
+        
+        if label in object_names:
+            detected_objects[label] += 1
+
+    # Hiển thị cảnh báo nếu số lượng vật thể chưa đủ
+    for obj in object_names:
+        required_count = object_counts_input[obj]
+        current_count = detected_objects[obj]
+        
+        if required_count > 0 and current_count < required_count:
+            cv2.putText(img, f"Warning: {obj} Missing!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        elif current_count >= required_count:
+            cv2.putText(img, f"{obj.capitalize()}: {current_count}/{required_count}", (50, 50 + object_names.index(obj) * 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
     # Trả về frame đã xử lý
     return av.VideoFrame.from_ndarray(img, format="bgr24")
 
