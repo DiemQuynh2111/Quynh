@@ -102,7 +102,7 @@ class VideoTransformer(VideoTransformerBase):
             return cv2.cvtColor(processed_frame, cv2.COLOR_RGB2BGR)
         except Exception as e:
             st.error(f"Lỗi trong quá trình xử lý video: {e}")
-            return frame.to_ndarray()
+            return frame.to_ndarray()  # Trả về frame gốc nếu có lỗi
 
 
 # Streamlit UI
@@ -121,7 +121,10 @@ webrtc_streamer(
     key="object-detection",
     video_processor_factory=lambda: VideoTransformer(object_names, frame_limit, object_counts_input),
     rtc_configuration={
-        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+        "iceServers": [
+            {"urls": ["stun:stun.l.google.com:19302"]},
+            {"urls": ["turn:your.turn.server"], "username": "user", "credential": "pass"}  # TURN server nếu cần
+        ]
     },
     media_stream_constraints={"video": True, "audio": False},  # Chỉ bật video
 )
