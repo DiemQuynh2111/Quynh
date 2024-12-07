@@ -6,11 +6,12 @@ import gdown
 import urllib.request
 import time
 import streamlit.components.v1 as components
+import threading
 
 # Đường dẫn đến tệp weights, config, và classes
 weights_file = "yolov3.weights"
 config_file = "yolov3.cfg"
-classes_file = "yolov3.txt"
+classes_file = "coco.names"
 
 # URL cho tệp config và classes
 config_url = "https://raw.githubusercontent.com/pjreddie/darknet/master/cfg/yolov3.cfg"
@@ -84,6 +85,12 @@ def play_alarm():
 
 play_alarm()
 
+# Khởi tạo session_state để lưu trữ trạng thái cảnh báo và thread
+if 'alert' not in st.session_state:
+    st.session_state.alert = False
+if 'thread_running' not in st.session_state:
+    st.session_state.thread_running = False
+
 # Placeholder để hiển thị video
 frame_placeholder = st.empty()
 
@@ -91,19 +98,9 @@ frame_placeholder = st.empty()
 start_button = st.button("Bắt Đầu Phát Hiện")
 stop_button = st.button("Dừng Phát Hiện")
 
-# Sử dụng Session State để quản lý trạng thái phát hiện
-if 'running' not in st.session_state:
-    st.session_state.running = False
-
-if start_button:
-    st.session_state.running = True
-
-if stop_button:
-    st.session_state.running = False
-
 # Hàm phát hiện đối tượng
-def detect_objects(video_source=0):
-    # Mở nguồn video (0 để mở webcam)
+def detect_objects(video_source):
+    # Mở nguồn video (0 để mở webcam hoặc đường dẫn tới video)
     cap = cv2.VideoCapture(video_source)
 
     if not cap.isOpened():
@@ -176,6 +173,12 @@ def detect_objects(video_source=0):
                             (50, 50 + object_names.index(obj) * 30),
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
+        # Cập nhật trạng thái cảnh báo trong session_state
+        if missing_alert_triggered:
+            st.session_state.alert = True
+        else:
+            st.session_state.alert = False
+
         # Nếu cần, gọi hàm JavaScript để phát âm thanh cảnh báo
         if missing_alert_triggered:
             # Gọi hàm JavaScript để phát âm thanh cảnh báo
@@ -189,6 +192,39 @@ def detect_objects(video_source=0):
 
     cap.release()
 
-# Chạy quá trình phát hiện đối tượng khi nhấn Start Detection
-if st.session_state.running:
-    detect_objects(video_source=0)  # Sử dụng 0 để mở webcam hoặc đường dẫn tới video
+# Sử dụng thread để chạy hàm phát hiện đối tượng mà không bị chặn giao diện Streamlit
+if start_button and not st.session_state.running:
+    st.session_state.running = True
+    st.session_state.thread_running = True
+    thread = threading.Thread(target=detect_objects, args=(0,), daemon=True)
+    thread.start()
+
+if stop_button and st.session_state.running:
+    st.session_state.running = False
+    st.session_state.thread_running = False
+
+# Nếu bạn muốn hỗ trợ tải lên tệp video, thêm phần này:
+st.sidebar.header("Hoặc Tải Lên Tệp Video")
+
+uploaded_file = st.sidebar.file_uploader("Chọn một tệp video để phát hiện đối tượng", type=["mp4", "avi", "mov"])
+
+if uploaded_file is not None:
+    # Lưu tệp video tạm thời
+    tfile = tempfile.NamedTemporaryFile(delete=False)
+    tfile.write(uploaded_file.read())
+    video_path = tfile.name
+
+    if st.sidebar.button("Phát Hiện Đối Tượng Trên Video"):
+        if st.session_state.running:
+            st.warning("Ứng dụng đang chạy quá trình phát hiện. Vui lòng dừng trước khi chạy lại.")
+        else:
+            st.session_state.running = True
+            st.session_state.thread_running = True
+            thread = threading.Thread(target=detect_objects, args=(video_path,), daemon=True)
+            thread.start()
+
+# Hiển thị cảnh báo và phát âm thanh nếu cần
+if st.session_state.alert:
+    st.warning("Warning: Một hoặc nhiều đối tượng đang thiếu!")
+    # Gọi hàm JavaScript để phát âm thanh cảnh báo
+    components.html("<script>playAlarm();</script>", height=0)
