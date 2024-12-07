@@ -7,7 +7,7 @@ import urllib.request
 # Đọc các file cấu hình và class
 config_file = r"/workspaces/Quynh/yolov3.cfg"
 weights_file = r"/workspaces/Quynh/yolov3.weights"
-classes_file = "yolov3.txt"
+classes_file = r"/workspaces/Quynh/yolov3.txt"
 
 # URL cho tệp weights và config nếu không có sẵn
 weights_url = "https://pjreddie.com/media/files/yolov3.weights"
