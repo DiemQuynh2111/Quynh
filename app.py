@@ -78,7 +78,8 @@ if "initial_objects_count" not in st.session_state:
 # Khi nhấn nút Start
 if start_button:
     if st.session_state.cap is None or not st.session_state.cap.isOpened():
-        st.session_state.cap = cv2.VideoCapture(0)  # Mở lại camera
+        st.write("Không thể truy cập vào camera. Bạn có thể thử video tĩnh thay thế.")
+        st.session_state.cap = cv2.VideoCapture("path_to_your_video.mp4")  # Video tĩnh thay vì camera
     st.session_state.is_running = True
 
 # Khi nhấn nút Stop
