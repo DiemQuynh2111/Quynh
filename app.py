@@ -83,18 +83,18 @@ if stop_button:
     st.session_state.running = False
 
 # Hàm phát hiện đối tượng
-def detect_objects():
-    # Mở webcam
-    cap = cv2.VideoCapture(0)
+def detect_objects(video_source=0):
+    # Mở webcam hoặc video file
+    cap = cv2.VideoCapture(video_source)
 
     if not cap.isOpened():
-        st.error("Unable to access the camera.")
+        st.error("Không thể mở nguồn video.")
         return
 
     while st.session_state.running:
         ret, frame = cap.read()
         if not ret:
-            st.error("Failed to grab frame.")
+            st.error("Không thể nhận khung hình từ nguồn video.")
             break
 
         height, width, channels = frame.shape
@@ -168,4 +168,6 @@ def detect_objects():
 
 # Chạy quá trình phát hiện đối tượng khi nhấn Start Detection
 if st.session_state.running:
-    detect_objects()
+    # Bạn có thể thay đổi `video_source` thành đường dẫn tệp video nếu không sử dụng webcam
+    detect_objects(video_source=0)  # Sử dụng 0 để mở webcam
+
