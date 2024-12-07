@@ -7,7 +7,6 @@ import urllib.request
 import time
 import streamlit.components.v1 as components
 import threading
-import tempfile
 
 # Đường dẫn đến tệp weights, config, và classes
 weights_file = "yolov3.weights"
@@ -97,18 +96,18 @@ start_button = st.button("Bắt Đầu Phát Hiện")
 stop_button = st.button("Dừng Phát Hiện")
 
 # Hàm phát hiện đối tượng
-def detect_objects(video_source):
-    # Mở nguồn video (0 để mở webcam hoặc đường dẫn tới video)
-    cap = cv2.VideoCapture(video_source)
+def detect_objects_from_webcam():
+    # Mở webcam (ID 0 là mặc định)
+    cap = cv2.VideoCapture(0)
 
     if not cap.isOpened():
-        st.error("Không thể mở nguồn video.")
+        st.error("Không thể mở webcam.")
         return
 
-    while st.session_state.running:
+    while True:
         ret, frame = cap.read()
         if not ret:
-            st.error("Không thể nhận khung hình từ nguồn video.")
+            st.error("Không thể nhận khung hình từ webcam.")
             break
 
         height, width, channels = frame.shape
@@ -189,11 +188,6 @@ def detect_objects(video_source):
 
     cap.release()
 
-# Sử dụng Streamlit Camera Input (webcam)
-camera_input = st.camera_input("Chọn Hình Ảnh Từ Webcam")
-
-if camera_input:
-    # Chạy phát hiện đối tượng trên hình ảnh từ webcam
-    st.session_state.running = True
-    detect_objects(camera_input)
-
+if start_button:
+    # Bắt đầu quá trình nhận diện
+    detect_objects_from_webcam()
