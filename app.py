@@ -129,10 +129,8 @@ def video_frame_callback(frame: VideoFrame):
 
     return VideoFrame.from_ndarray(img, format="bgr24")
 
-# Tạo WebRTC context (Không cần gọi `run()` nữa)
-webrtc_streamer = webrtc.StreamlitWebRtc(
+# Sử dụng API đúng cách (Lấy đối tượng `webrtc` mà không cần `run()`)
+webrtc_streamer = webrtc.webRtc(
     video_frame_callback=video_frame_callback,
     media_stream_constraints={"video": True, "audio": False}
 )
-
-# WebRTC sẽ tự động chạy khi được gọi
