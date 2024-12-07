@@ -3,8 +3,6 @@ import cv2
 import numpy as np
 import streamlit as st
 import gdown
-import streamlit_webrtc as webrtc
-from av import VideoFrame
 import urllib
 
 # Đường dẫn đến tệp weights, config, và classes
@@ -63,77 +61,80 @@ for obj in object_names:
 
 alarm_sound = r"/workspaces/Quynh/police.wav"
 
-# Streamlit WebRTC callback
-def video_frame_callback(frame: VideoFrame):
-    # Convert AV frame to numpy array
-    img = frame.to_ndarray(format="bgr24")
-    
-    height, width, channels = img.shape
-    blob = cv2.dnn.blobFromImage(img, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
-    net.setInput(blob)
-    outs = net.forward(get_output_layers(net))
+# Hàm xử lý và hiển thị video trong Streamlit
+def detect_objects_from_video():
+    cap = cv2.VideoCapture(0)  # Mở webcam
 
-    class_ids = []
-    confidences = []
-    boxes = []
-    detected_objects = {obj: 0 for obj in object_names}  # Đếm các vật thể đã phát hiện
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            st.write("Failed to grab frame")
+            break
 
-    for out in outs:
-        for detection in out:
-            scores = detection[5:]
-            class_id = np.argmax(scores)
-            confidence = scores[class_id]
-            if confidence > 0.5 and classes[class_id].lower() in object_names:
-                center_x = int(detection[0] * width)
-                center_y = int(detection[1] * height)
-                w = int(detection[2] * width)
-                h = int(detection[3] * height)
-                x = int(center_x - w / 2)
-                y = int(center_y - h / 2)
-                boxes.append([x, y, w, h])
-                confidences.append(float(confidence))
-                class_ids.append(class_id)
+        height, width, channels = frame.shape
+        blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+        net.setInput(blob)
+        outs = net.forward(get_output_layers(net))
 
-    # Áp dụng NMS (Non-Maximum Suppression) để loại bỏ các bounding boxes dư thừa
-    indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
+        class_ids = []
+        confidences = []
+        boxes = []
+        detected_objects = {obj: 0 for obj in object_names}  # Đếm các vật thể đã phát hiện
 
-    if len(indices) > 0:
-        for i in indices.flatten():
-            box = boxes[i]
-            x, y, w, h = box
-            color = COLORS[class_ids[i]]
-            label = str(classes[class_ids[i]])
-            cv2.rectangle(img, (x, y), (x + w, y + h), color, 2)
-            cv2.putText(img, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+        for out in outs:
+            for detection in out:
+                scores = detection[5:]
+                class_id = np.argmax(scores)
+                confidence = scores[class_id]
+                if confidence > 0.5 and classes[class_id].lower() in object_names:
+                    center_x = int(detection[0] * width)
+                    center_y = int(detection[1] * height)
+                    w = int(detection[2] * width)
+                    h = int(detection[3] * height)
+                    x = int(center_x - w / 2)
+                    y = int(center_y - h / 2)
+                    boxes.append([x, y, w, h])
+                    confidences.append(float(confidence))
+                    class_ids.append(class_id)
 
-            # Cập nhật số lượng vật thể đã phát hiện
-            detected_objects[classes[class_ids[i]].lower()] += 1
+        # Áp dụng NMS (Non-Maximum Suppression) để loại bỏ các bounding boxes dư thừa
+        indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
 
-    # Kiểm tra số lượng vật thể theo yêu cầu
-    for obj in object_names:
-        required_count = object_counts_input[obj]
-        current_count = detected_objects[obj]
-        
-        # Nếu số lượng vật thể phát hiện ít hơn yêu cầu, hiển thị cảnh báo
-        if required_count > 0 and current_count < required_count:
-            missing_object = obj
-            cv2.putText(img, f"Warning: {missing_object} Missing!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        if len(indices) > 0:
+            for i in indices.flatten():
+                box = boxes[i]
+                x, y, w, h = box
+                color = COLORS[class_ids[i]]
+                label = str(classes[class_ids[i]])
+                cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+                cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
 
-            # Phát âm thanh cảnh báo
-            with open(alarm_sound, "rb") as audio_file:
-                audio_bytes = audio_file.read()
-            st.audio(audio_bytes, format="audio/wav")
-        elif current_count >= required_count:  # Nếu số lượng vật thể đủ
-            cv2.putText(img, f"{obj.capitalize()}: {current_count}/{required_count}", (50, 50 + object_names.index(obj) * 30), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                # Cập nhật số lượng vật thể đã phát hiện
+                detected_objects[classes[class_ids[i]].lower()] += 1
 
-    return VideoFrame.from_ndarray(img, format="bgr24")
+        # Kiểm tra số lượng vật thể theo yêu cầu
+        for obj in object_names:
+            required_count = object_counts_input[obj]
+            current_count = detected_objects[obj]
+            
+            # Nếu số lượng vật thể phát hiện ít hơn yêu cầu, hiển thị cảnh báo
+            if required_count > 0 and current_count < required_count:
+                missing_object = obj
+                cv2.putText(frame, f"Warning: {missing_object} Missing!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-# Cấu hình và sử dụng WebRTC
-webrtc_streamer = webrtc.streamlit_webrtc(
-    key="object-detection",  # Dùng key duy nhất cho ứng dụng
-    video_frame_callback=video_frame_callback,
-    media_stream_constraints={"video": True, "audio": False},
-    on_error=print,  # Xử lý lỗi dễ dàng hơn
-    video_html_attrs={"style": {"width": "100%"}}  # Cải thiện giao diện video
-)
+                # Phát âm thanh cảnh báo
+                with open(alarm_sound, "rb") as audio_file:
+                    audio_bytes = audio_file.read()
+                st.audio(audio_bytes, format="audio/wav")
+            elif current_count >= required_count:  # Nếu số lượng vật thể đủ
+                cv2.putText(frame, f"{obj.capitalize()}: {current_count}/{required_count}", (50, 50 + object_names.index(obj) * 30), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+        # Hiển thị ảnh trong Streamlit
+        st.image(frame, channels="BGR", use_column_width=True)
+
+    cap.release()
+
+# Gọi hàm phát hiện đối tượng từ video
+if st.button("Start Detection"):
+    detect_objects_from_video()
