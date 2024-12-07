@@ -7,6 +7,7 @@ import urllib.request
 import time
 import streamlit.components.v1 as components
 import threading
+import tempfile
 
 # Đường dẫn đến tệp weights, config, và classes
 weights_file = "yolov3.weights"
