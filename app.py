@@ -137,4 +137,3 @@ webrtc_streamer = webrtc.streamlit_webrtc(
     on_error=print,  # Xử lý lỗi dễ dàng hơn
     video_html_attrs={"style": {"width": "100%"}}  # Cải thiện giao diện video
 )
-
