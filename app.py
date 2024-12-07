@@ -1,33 +1,24 @@
 import cv2
 import numpy as np
 import streamlit as st
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 import os
 import gdown
-import urllib
 
-# Đường dẫn đến tệp weights, config, và classes
+# Kiểm tra và tải tệp yolov3.weights từ Google Drive nếu chưa tồn tại
 weights_file = "yolov3.weights"
+if not os.path.exists(weights_file):
+    drive_url = "https://drive.google.com/uc?id=11rE4um7BB12mtsgiq-D774qprMaRhjpm"
+    st.write("Downloading yolov3.weights from Google Drive...")
+    gdown.download(drive_url, weights_file, quiet=False)
+
+# Kiểm tra và tải các tệp cấu hình
 config_file = "yolov3.cfg"
 classes_file = "yolov3.txt"
 
-# URL cho tệp config và classes
-config_url = "https://raw.githubusercontent.com/pjreddie/darknet/master/cfg/yolov3.cfg"
-classes_url = "https://raw.githubusercontent.com/pjreddie/darknet/master/data/coco.names"
-
-# Kiểm tra và tải tệp weights từ Google Drive nếu không tồn tại
-if not os.path.exists(weights_file):
-    gdown.download("https://drive.google.com/uc?id=1pT0G-Mk9QIbjbOT4WTKEAf4TsmfG7jRD", weights_file, quiet=False)
-    print(f"Downloaded {weights_file}")
-
-# Kiểm tra và tải tệp config nếu không tồn tại
-if not os.path.exists(config_file):
-    urllib.request.urlretrieve(config_url, config_file)
-    print(f"Downloaded {config_file}")
-
-# Kiểm tra và tải tệp classes nếu không tồn tại
-if not os.path.exists(classes_file):
-    urllib.request.urlretrieve(classes_url, classes_file)
-    print(f"Downloaded {classes_file}")
+if not os.path.exists(config_file) or not os.path.exists(classes_file):
+    st.error("Tệp cấu hình hoặc tệp classes không tồn tại. Vui lòng kiểm tra lại!")
+    st.stop()
 
 # Đọc các lớp từ tệp
 with open(classes_file, 'r') as f:
@@ -37,16 +28,82 @@ with open(classes_file, 'r') as f:
 COLORS = np.random.uniform(0, 255, size=(len(classes), 3))
 
 # Tải mô hình YOLO
-net = cv2.dnn.readNet(weights_file, config_file)
+try:
+    net = cv2.dnn.readNet(weights_file, config_file)
+except Exception as e:
+    st.error(f"Lỗi khi tải mô hình YOLO: {e}")
+    st.stop()
 
-# Lấy các layer output
+# Hàm lấy các lớp đầu ra từ YOLO
 def get_output_layers(net):
     layer_names = net.getLayerNames()
-    unconnected_out_layers = net.getUnconnectedOutLayers()
-    if isinstance(unconnected_out_layers, np.ndarray) and unconnected_out_layers.ndim == 1:
-        return [layer_names[i - 1] for i in unconnected_out_layers]
-    else:
-        return [layer_names[i[0] - 1] for i in unconnected_out_layers]
+    return [layer_names[i[0] - 1] for i in net.getUnconnectedOutLayers()]
+
+# Hàm xử lý YOLO
+def detect_objects(frame, object_names, frame_limit, object_counts_input):
+    if frame is None:
+        return frame  # Bỏ qua nếu khung hình là None
+    
+    height, width, _ = frame.shape
+    blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+    net.setInput(blob)
+    outs = net.forward(get_output_layers(net))
+
+    class_ids = []
+    confidences = []
+    boxes = []
+    detected_objects = {obj: 0 for obj in object_names}
+
+    for out in outs:
+        for detection in out:
+            scores = detection[5:]
+            class_id = np.argmax(scores)
+            confidence = scores[class_id]
+            if confidence > 0.5 and classes[class_id].lower() in object_names:
+                center_x = int(detection[0] * width)
+                center_y = int(detection[1] * height)
+                w = int(detection[2] * width)
+                h = int(detection[3] * height)
+                x = int(center_x - w / 2)
+                y = int(center_y - h / 2)
+                boxes.append([x, y, w, h])
+                confidences.append(float(confidence))
+                class_ids.append(class_id)
+
+    # Áp dụng Non-Maximum Suppression (NMS)
+    indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
+
+    for i in indices.flatten():
+        box = boxes[i]
+        x, y, w, h = box
+        color = COLORS[class_ids[i]]
+        label = str(classes[class_ids[i]])
+        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+        cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+        detected_objects[classes[class_ids[i]].lower()] += 1
+
+    return frame
+
+
+# Xác định lớp xử lý video
+class VideoTransformer(VideoTransformerBase):
+    def __init__(self, object_names, frame_limit, object_counts_input):
+        self.object_names = object_names
+        self.frame_limit = frame_limit
+        self.object_counts_input = object_counts_input
+
+    def transform(self, frame):
+        if frame is None:
+            return None  # Trả về None nếu frame là None
+
+        try:
+            frame = cv2.cvtColor(frame.to_ndarray(), cv2.COLOR_BGR2RGB)
+            processed_frame = detect_objects(frame, self.object_names, self.frame_limit, self.object_counts_input)
+            return cv2.cvtColor(processed_frame, cv2.COLOR_RGB2BGR)
+        except Exception as e:
+            st.error(f"Lỗi trong quá trình xử lý video: {e}")
+            return frame.to_ndarray()
+
 
 # Streamlit UI
 st.title("Object Detection with YOLO")
@@ -59,115 +116,12 @@ object_counts_input = {}
 for obj in object_names:
     object_counts_input[obj] = st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1)
 
-start_button = st.button("Start")
-stop_button = st.button("Stop")
-
-# Đường dẫn âm thanh cảnh báo
-alarm_sound = r"/workspaces/Quynh/police.wav"
-
-# Trạng thái camera và chạy chương trình
-if "cap" not in st.session_state:
-    st.session_state.cap = None
-if "is_running" not in st.session_state:
-    st.session_state.is_running = False
-if "object_not_found_counter" not in st.session_state:
-    st.session_state.object_not_found_counter = {obj: 0 for obj in object_names}  # Đếm vật thể không tìm thấy
-if "initial_objects_count" not in st.session_state:
-    st.session_state.initial_objects_count = {obj: 0 for obj in object_names}  # Lưu số lượng ban đầu của mỗi vật thể
-
-# Khi nhấn nút Start
-if start_button:
-    if st.session_state.cap is None or not st.session_state.cap.isOpened():
-        st.write("Không thể truy cập vào camera. Bạn có thể thử video tĩnh thay thế.")
-        st.session_state.cap = cv2.VideoCapture("path_to_your_video.mp4")  # Video tĩnh thay vì camera
-    st.session_state.is_running = True
-
-# Khi nhấn nút Stop
-if stop_button:
-    st.session_state.is_running = False
-    if st.session_state.cap and st.session_state.cap.isOpened():
-        st.session_state.cap.release()
-        st.session_state.cap = None  # Đặt lại trạng thái camera
-
-# Vòng lặp xử lý camera
-if st.session_state.is_running:
-    while st.session_state.is_running:
-        ret, frame = st.session_state.cap.read()
-        if not ret:
-            st.write("Không thể đọc camera. Vui lòng kiểm tra thiết bị!")
-            break
-
-        height, width, channels = frame.shape
-        blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
-        net.setInput(blob)
-        outs = net.forward(get_output_layers(net))
-
-        class_ids = []
-        confidences = []
-        boxes = []
-        detected_objects = {obj: 0 for obj in object_names}  # Đếm các vật thể đã phát hiện
-
-        for out in outs:
-            for detection in out:
-                scores = detection[5:]
-                class_id = np.argmax(scores)
-                confidence = scores[class_id]
-                if confidence > 0.5 and classes[class_id].lower() in object_names:
-                    center_x = int(detection[0] * width)
-                    center_y = int(detection[1] * height)
-                    w = int(detection[2] * width)
-                    h = int(detection[3] * height)
-                    x = int(center_x - w / 2)
-                    y = int(center_y - h / 2)
-                    boxes.append([x, y, w, h])
-                    confidences.append(float(confidence))
-                    class_ids.append(class_id)
-
-        # Áp dụng NMS (Non-Maximum Suppression) để loại bỏ các bounding boxes dư thừa
-        indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
-
-        object_found = False
-        if len(indices) > 0:
-            object_found = True
-            for i in indices.flatten():
-                box = boxes[i]
-                x, y, w, h = box
-                color = COLORS[class_ids[i]]
-                label = str(classes[class_ids[i]])
-                cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-                cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-
-                # Cập nhật số lượng vật thể đã phát hiện
-                detected_objects[classes[class_ids[i]].lower()] += 1
-
-        # Kiểm tra số lượng vật thể theo yêu cầu
-        for obj in object_names:
-            required_count = object_counts_input[obj]
-            current_count = detected_objects[obj]
-            
-            # Nếu số lượng vật thể phát hiện ít hơn yêu cầu, hiển thị cảnh báo
-            if required_count > 0 and current_count < required_count:
-                missing_object = obj
-                cv2.putText(frame, f"Warning: {missing_object} Missing!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-
-                # Phát âm thanh cảnh báo
-                with open(alarm_sound, "rb") as audio_file:
-                    audio_bytes = audio_file.read()
-                st.audio(audio_bytes, format="audio/wav")
-            elif current_count >= required_count:  # Nếu số lượng vật thể đủ
-                cv2.putText(frame, f"{obj.capitalize()}: {current_count}/{required_count}", (50, 50 + object_names.index(obj) * 30), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-
-            # Cập nhật số lượng vật thể đã phát hiện
-            st.session_state.initial_objects_count[obj] = detected_objects[obj]
-
-        # Sử dụng Streamlit để hiển thị hình ảnh
-        st.image(frame, channels="BGR", caption="Object Detection", use_column_width=True)
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            st.session_state.is_running = False
-
-    # Dừng camera sau khi kết thúc
-    if st.session_state.cap and st.session_state.cap.isOpened():
-        st.session_state.cap.release()
-        st.session_state.cap = None
+# Khởi chạy camera với streamlit-webrtc
+webrtc_streamer(
+    key="object-detection",
+    video_processor_factory=lambda: VideoTransformer(object_names, frame_limit, object_counts_input),
+    rtc_configuration={
+        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+    },
+    media_stream_constraints={"video": True, "audio": False},  # Chỉ bật video
+)
