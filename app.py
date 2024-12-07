@@ -131,7 +131,6 @@ try:
             ]
         },
         media_stream_constraints={"video": True, "audio": False},  # Chỉ bật video
-        on_error=lambda e: st.error(f"WebRTC Error: {e}")
     )
 except Exception as e:
     st.error(f"An error occurred while setting up the WebRTC stream: {e}")
