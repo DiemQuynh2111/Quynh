@@ -118,19 +118,15 @@ object_counts_input = {}
 for obj in object_names:
     object_counts_input[obj] = st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1)
 
-# Bao bọc `webrtc_streamer` trong try-except để ghi nhận lỗi chi tiết
-try:
-    # Cấu hình camera
-    webrtc_streamer(
-        key="object-detection",
-        video_processor_factory=lambda: VideoTransformer(object_names, frame_limit, object_counts_input),
-        rtc_configuration={
-            "iceServers": [
-                {"urls": ["stun:stun.l.google.com:19302"]},
-                {"urls": ["stun:stun1.l.google.com:19302"]}
-            ]
-        },
-        media_stream_constraints={"video": True, "audio": False},  # Chỉ bật video
-    )
-except Exception as e:
-    st.error(f"An error occurred while setting up the WebRTC stream: {e}")
+# Cấu hình WebRTC
+webrtc_streamer(
+    key="object-detection",
+    video_processor_factory=lambda: VideoTransformer(object_names, frame_limit, object_counts_input),
+    rtc_configuration={
+        "iceServers": [
+            {"urls": ["stun:stun.l.google.com:19302"]},
+            {"urls": ["stun:stun1.l.google.com:19302"]}
+        ]
+    },
+    media_stream_constraints={"video": True, "audio": False},  # Chỉ bật video
+)
