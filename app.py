@@ -55,10 +55,12 @@ stop_button = st.button("Stop and Delete Video")
 
 cap = None  # Biến để lưu nguồn video
 
-# Thêm Non-Maximum Suppression (NMS) để loại bỏ các bounding boxes chồng lấn
-def apply_nms(boxes, confidences, threshold=0.4):
-    indices = cv2.dnn.NMSBoxes(boxes, confidences, score_threshold=0.5, nms_threshold=threshold)
-    return indices
+# Âm thanh cảnh báo trực tiếp (sử dụng Streamlit)
+alarm_audio = """
+    <audio autoplay>
+        <source src="https://www.soundjay.com/button/beep-07.wav" type="audio/wav">
+    </audio>
+"""
 
 # Xử lý video từ nguồn
 if video_source == "Upload File":
@@ -73,7 +75,7 @@ if video_source == "Upload File":
 if cap is not None and start_button:
     stframe = st.empty()
     detected_objects = {}
-    lost_objects = set()  # Set để theo dõi các vật thể mất
+    lost_objects = set()
 
     while True:
         ret, frame = cap.read()
@@ -88,9 +90,10 @@ if cap is not None and start_button:
 
         height, width, _ = frame.shape
         boxes = []
-        confidences = []
         class_ids = []
+        confidences = []
 
+        # Lấy thông tin từ các lớp đầu ra
         for out in outs:
             for detection in out:
                 scores = detection[5:]
@@ -103,46 +106,45 @@ if cap is not None and start_button:
                     h = int(detection[3] * height)
                     x = center_x - w // 2
                     y = center_y - h // 2
-
                     boxes.append([x, y, w, h])
-                    confidences.append(float(confidence))
                     class_ids.append(class_id)
+                    confidences.append(float(confidence))
 
-        # Áp dụng NMS
-        indices = apply_nms(boxes, confidences)
+        # Áp dụng Non-Maximum Suppression để loại bỏ các bounding box chồng lấp
+        indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
 
-        for i in indices:
-            i = i[0]
-            x, y, w, h = boxes[i]
-            label = classes[class_ids[i]].lower()
-            color = COLORS[class_ids[i]]
+        if len(indices) > 0:
+            for i in indices.flatten():
+                x, y, w, h = boxes[i]
+                label = classes[class_ids[i]].lower()
+                color = COLORS[class_ids[i]]
 
-            # Vẽ bounding box và nhãn
-            cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-            cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                # Vẽ bounding box và nhãn
+                cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+                cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-            # Đếm và theo dõi
-            if label not in detected_objects:
-                detected_objects[label] = 1
-                lost_objects_time[label] = time()  # Lưu thời gian khi vật thể xuất hiện
-                lost_objects.discard(label)  # Xóa vật thể từ danh sách mất
-            else:
-                detected_objects[label] += 1
+                # Đếm và theo dõi
+                if label not in detected_objects:
+                    detected_objects[label] = 1
+                    lost_objects_time[label] = time()  # Lưu thời gian khi vật thể xuất hiện
+                    lost_objects.discard(label)  # Xóa vật thể khỏi danh sách mất
+                else:
+                    detected_objects[label] += 1
 
-        # Kiểm tra vật thể không khớp (không có đủ số lượng đã nhập)
+                # Kiểm tra số lượng vật thể và cảnh báo
+                if detected_objects[label] > monitor_counts.get(label, 0):
+                    st.warning(f"ALERT: {label} detected more than {monitor_counts.get(label, 0)} times!")
+
+        # Kiểm tra vật thể mất
         for obj in object_names:
-            expected_count = monitor_counts[obj]
-            detected_count = detected_objects.get(obj, 0)
-            if detected_count != expected_count:
-                if obj not in lost_objects_time or time() - lost_objects_time[obj] > 5:  # Cập nhật lại mỗi 5 giây
+            if obj not in detected_objects or detected_objects[obj] == 0:
+                if obj not in lost_objects_time or time() - lost_objects_time[obj] > 5:  # 5 giây không phát hiện lại
+                    # Phát âm thanh cảnh báo khi vật thể mất
                     if obj not in lost_objects:
-                        current_time = time()
-                        elapsed_time = current_time - lost_objects_time[obj]
-                        elapsed_time_str = f"{int(elapsed_time // 3600)}:{int((elapsed_time % 3600) // 60)}:{int(elapsed_time % 60)}"
-                        st.warning(f"ALERT: {obj} detected {detected_count} times instead of {expected_count}.")
-                        st.write(f"Time of mismatch: {elapsed_time_str}")
-                        lost_objects_time[obj] = current_time  # Cập nhật thời gian khi không khớp
-                        lost_objects.add(obj)  # Thêm vật thể vào danh sách đã mất
+                        lost_objects.add(obj)
+                        st.warning(f"ALERT: {obj} not detected!")
+                        st.markdown(alarm_audio, unsafe_allow_html=True)  # Phát âm thanh khi vật thể mất
+                        st.write(f"Time lost: {time() - lost_objects_time.get(obj, 0):.2f} seconds")  # Hiển thị thời gian mất
 
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
