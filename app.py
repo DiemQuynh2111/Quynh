@@ -100,7 +100,7 @@ if cap is not None and start_button:
 
         height, width, _ = frame.shape
         boxes = []
-        class_ids = []
+               class_ids = []
         confidences = []
         detected_objects.clear()
 
@@ -162,6 +162,14 @@ if cap is not None and start_button:
                     del lost_objects_time[obj]  # Xóa thời gian mất
                 if obj in alerted_objects:  # Xóa cảnh báo đã thông báo trước đó
                     alerted_objects.remove(obj)
+
+        # Kiểm tra số lượng đối tượng hiện tại
+        for obj in object_names:
+            if detected_objects.get(obj, 0) < monitor_counts[obj]:
+                if obj not in alerted_objects:
+                    alerted_objects.add(obj)
+                    st.warning(f"⚠️ ALERT: Not enough '{obj}' detected!")
+                    play_alert_sound()  # Phát âm thanh cảnh báo ngay lập tức
 
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
