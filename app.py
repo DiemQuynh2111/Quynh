@@ -129,16 +129,14 @@ RTC_CONFIGURATION = RTCConfiguration({
 })
 
 # Hiển thị video trong webRTC
-video_source = st.radio("Choose video source", ["Upload File", "Use Webcam"])
+uploaded_file = st.file_uploader("Upload a video file", type=["mp4", "avi", "mov", "mkv"])
+if uploaded_file is not None:
+    with open("uploaded_video.mp4", "wb") as f:
+        f.write(uploaded_file.read())
+    st.success("Video uploaded successfully!")
 
-if video_source == "Upload File":
-    uploaded_file = st.file_uploader("Upload a video file", type=["mp4", "avi", "mov", "mkv"])
-    if uploaded_file is not None:
-        with open("uploaded_video.mp4", "wb") as f:
-            f.write(uploaded_file.read())
-        st.success("Video uploaded successfully!")
-else:
-    st.warning("Please upload a video to proceed.")
+    video_url = "/uploaded_video.mp4"
+    st.video(video_url)  # Hiển thị video ngay lập tức
 
 stop_button = st.button("Stop and Delete Video")
 
