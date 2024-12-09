@@ -32,7 +32,7 @@ def get_output_layers(net):
     return [layer_names[i - 1] for i in net.getUnconnectedOutLayers()]
 
 # Giao diện Streamlit
-st.title("CTheft prevention using YOLO")
+st.title("Theft prevention using YOLO")
 
 # Thanh bên trái để nhập thông tin
 st.sidebar.header("Settings")
