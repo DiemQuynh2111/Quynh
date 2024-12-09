@@ -3,6 +3,7 @@ import numpy as np
 import streamlit as st
 import os
 import gdown
+from pytube import YouTube
 
 # Kiểm tra và tải tệp yolov3.weights từ Google Drive nếu chưa tồn tại
 weights_file = "yolov3.weights"
@@ -57,22 +58,40 @@ def detect_objects(frame, object_names, prev_objects):
     return detected_objects
 
 # Streamlit UI
-st.title("Object Detection from Uploaded Video")
+st.title("Object Detection from Video (File Upload or YouTube)")
 
 # Nhập đối tượng cần theo dõi
 object_names_input = st.sidebar.text_input('Enter Object Names (comma separated)', 'cell phone,laptop,umbrella')
 object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
 
-# Tải video từ máy tính lên
-uploaded_file = st.file_uploader("Upload a video file", type=["mp4", "avi", "mov", "mkv"])
+# Chọn cách tải video: từ file hoặc YouTube URL
+video_source = st.radio("Choose Video Source", ["Upload File", "YouTube URL"])
 
-if uploaded_file is not None:
-    # Lưu video tạm thời
-    temp_video_path = "temp_video.mp4"
-    with open(temp_video_path, "wb") as f:
-        f.write(uploaded_file.read())
+temp_video_path = "temp_video.mp4"
 
-    # Đọc video bằng OpenCV
+if video_source == "Upload File":
+    # Tải video từ máy tính lên
+    uploaded_file = st.file_uploader("Upload a video file", type=["mp4", "avi", "mov", "mkv"])
+    if uploaded_file is not None:
+        with open(temp_video_path, "wb") as f:
+            f.write(uploaded_file.read())
+elif video_source == "YouTube URL":
+    # Tải video từ YouTube
+    youtube_url = st.text_input("Paste YouTube URL here")
+    if youtube_url:
+        try:
+            yt = YouTube(youtube_url)
+            stream = yt.streams.filter(file_extension="mp4", res="360p").first()
+            if stream is not None:
+                stream.download(filename=temp_video_path)
+                st.success("YouTube video downloaded successfully!")
+            else:
+                st.error("Could not find a suitable stream for the video.")
+        except Exception as e:
+            st.error(f"Error downloading YouTube video: {e}")
+
+# Xử lý video
+if os.path.exists(temp_video_path):
     cap = cv2.VideoCapture(temp_video_path)
     fps = int(cap.get(cv2.CAP_PROP_FPS))
     frame_count = 0
@@ -103,4 +122,4 @@ if uploaded_file is not None:
     cap.release()
     os.remove(temp_video_path)
 else:
-    st.info("Vui lòng tải video lên để bắt đầu!")
+    st.info("Vui lòng tải video hoặc nhập URL để bắt đầu!")
