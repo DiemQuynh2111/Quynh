@@ -145,7 +145,7 @@ if cap is not None and start_button:
                         alerted_objects.add(obj)
                         st.warning(f"ALERT: {obj} is missing! Time lost: {lost_time}")
                         play_alert_sound()  # Phát âm thanh cảnh báo
-                    
+                        
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
 
