@@ -1,10 +1,8 @@
 import cv2
 import numpy as np
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode, RTCConfiguration
 import os
 import gdown
-import base64
 
 # Kiểm tra và tải tệp yolov3.weights từ Google Drive nếu chưa tồn tại
 weights_file = "yolov3.weights"
@@ -58,66 +56,51 @@ def detect_objects(frame, object_names, prev_objects):
 
     return detected_objects
 
-# Hàm để tạo âm thanh cảnh báo
-def play_sound():
-    sound_path = "alert.wav"
-    if os.path.exists(sound_path):
-        with open(sound_path, "rb") as sound_file:
-            audio_bytes = sound_file.read()
-        st.audio(audio_bytes, format="audio/wav")
-
-# Xác định lớp xử lý video
-class VideoTransformer(VideoTransformerBase):
-    def __init__(self, object_names, fps):
-        self.object_names = object_names
-        self.prev_objects = {obj: True for obj in object_names}
-        self.fps = fps
-        self.time_lost = {}
-
-    def transform(self, frame):
-        try:
-            frame = cv2.cvtColor(frame.to_ndarray(format="bgr24"), cv2.COLOR_BGR2RGB)
-            detected_objects = detect_objects(frame, self.object_names, self.prev_objects)
-
-            for obj, detected in detected_objects.items():
-                if not detected and self.prev_objects[obj]:
-                    current_time = st.session_state["frame_count"] / self.fps
-                    self.time_lost[obj] = current_time
-                    play_sound()  # Phát âm thanh cảnh báo
-                    st.warning(f"{obj.upper()} bị mất lúc: {int(current_time // 60)}:{int(current_time % 60)}")
-                
-                self.prev_objects[obj] = detected
-
-            st.session_state["frame_count"] += 1
-            return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        except Exception as e:
-            st.error(f"Lỗi trong quá trình xử lý video: {e}")
-            return frame.to_ndarray(format="bgr24")
-
 # Streamlit UI
-st.title("Object Detection with Alarm for Missing Objects")
+st.title("Object Detection from Uploaded Video")
 
 # Nhập đối tượng cần theo dõi
 object_names_input = st.sidebar.text_input('Enter Object Names (comma separated)', 'cell phone,laptop,umbrella')
 object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
-fps_input = st.sidebar.slider('Enter Video FPS', 1, 60, 30)
 
-# Cấu hình WebRTC
-RTC_CONFIGURATION = RTCConfiguration({
-    "iceServers": [
-        {"urls": ["stun:stun.l.google.com:19302"]},
-        {"urls": ["stun:stun1.l.google.com:19302"]}
-    ]
-})
+# Tải video từ máy tính lên
+uploaded_file = st.file_uploader("Upload a video file", type=["mp4", "avi", "mov", "mkv"])
 
-# Khởi tạo bộ đếm khung hình
-if "frame_count" not in st.session_state:
-    st.session_state["frame_count"] = 0
+if uploaded_file is not None:
+    # Lưu video tạm thời
+    temp_video_path = "temp_video.mp4"
+    with open(temp_video_path, "wb") as f:
+        f.write(uploaded_file.read())
 
-webrtc_streamer(
-    key="object-detection",
-    mode=WebRtcMode.SENDRECV,
-    video_processor_factory=lambda: VideoTransformer(object_names, fps_input),
-    rtc_configuration=RTC_CONFIGURATION,
-    media_stream_constraints={"video": True, "audio": False},
-)
+    # Đọc video bằng OpenCV
+    cap = cv2.VideoCapture(temp_video_path)
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    frame_count = 0
+
+    # Theo dõi đối tượng mất
+    prev_objects = {obj: True for obj in object_names}
+    time_lost = {}
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        detected_objects = detect_objects(frame, object_names, prev_objects)
+
+        for obj, detected in detected_objects.items():
+            if not detected and prev_objects[obj]:
+                current_time = frame_count / fps
+                time_lost[obj] = current_time
+                st.warning(f"{obj.upper()} bị mất lúc: {int(current_time // 60)}:{int(current_time % 60)}")
+
+            prev_objects[obj] = detected
+
+        frame_count += 1
+        # Hiển thị khung hình
+        st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), channels="RGB", use_column_width=True)
+
+    cap.release()
+    os.remove(temp_video_path)
+else:
+    st.info("Vui lòng tải video lên để bắt đầu!")
