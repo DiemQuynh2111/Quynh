@@ -58,7 +58,7 @@ cap = None  # Biến để lưu nguồn video
 
 # Đọc file âm thanh cảnh báo (police.wav)
 def play_alert_sound():
-    alert_audio_file = 'police.wav'  # Đường dẫn đến file âm thanh police.wav
+    alert_audio_file = '/mnt/data/police.wav'  # Đường dẫn đến file âm thanh police.wav
     if os.path.exists(alert_audio_file):
         with open(alert_audio_file, 'rb') as f:
             audio_bytes = f.read()
