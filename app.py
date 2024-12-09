@@ -85,36 +85,52 @@ if os.path.exists(temp_video_path) and not st.session_state.clear:
 
     # Thêm nút điều khiển Start và Stop
     col1, col2 = st.columns(2)
-    if col1.button("Start"):
-        cap = cv2.VideoCapture(temp_video_path)
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            # Xử lý phát hiện vật thể
-            blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
-            net.setInput(blob)
-            outs = net.forward(get_output_layers(net))
+    start_button = col1.button("Start")
+    stop_button = col2.button("Stop")
 
-            height, width, _ = frame.shape
-            for out in outs:
-                for detection in out:
-                    scores = detection[5:]
-                    class_id = np.argmax(scores)
-                    confidence = scores[class_id]
-                    if confidence > 0.5 and classes[class_id] in object_names:
-                        label = str(classes[class_id])
-                        color = COLORS[class_id]
-                        center_x = int(detection[0] * width)
-                        center_y = int(detection[1] * height)
-                        w = int(detection[2] * width)
-                        h = int(detection[3] * height)
-                        x = center_x - w // 2
-                        y = center_y - h // 2
-                        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-                        cv2.putText(frame, label, (x - 10, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+    if start_button:
+        st.session_state.running = True
+        st.session_state.cap = cv2.VideoCapture(temp_video_path)
 
-            st.image(frame, channels="BGR", use_container_width=True)
-        cap.release()
+    if stop_button:
+        st.session_state.running = False
+        if 'cap' in st.session_state:
+            st.session_state.cap.release()
+            st.session_state.cap = None
+
+    # Xử lý video khi nút Start được nhấn
+    if 'running' in st.session_state and st.session_state.running:
+        cap = st.session_state.cap
+        ret, frame = cap.read()
+
+        if not ret:
+            st.warning("Video ended.")
+            st.session_state.running = False
+            cap.release()
+
+        # Xử lý phát hiện vật thể
+        blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+        net.setInput(blob)
+        outs = net.forward(get_output_layers(net))
+
+        height, width, _ = frame.shape
+        for out in outs:
+            for detection in out:
+                scores = detection[5:]
+                class_id = np.argmax(scores)
+                confidence = scores[class_id]
+                if confidence > 0.5 and classes[class_id] in object_names:
+                    label = str(classes[class_id])
+                    color = COLORS[class_id]
+                    center_x = int(detection[0] * width)
+                    center_y = int(detection[1] * height)
+                    w = int(detection[2] * width)
+                    h = int(detection[3] * height)
+                    x = center_x - w // 2
+                    y = center_y - h // 2
+                    cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+                    cv2.putText(frame, label, (x - 10, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+        st.image(frame, channels="BGR", use_container_width=True)
 else:
     st.info("Please upload a video or provide a YouTube URL.")
