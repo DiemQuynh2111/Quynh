@@ -40,7 +40,7 @@ st.sidebar.header("Settings")
 object_names_input = st.sidebar.text_input("Enter Object Names (comma separated)", "cell phone,laptop,umbrella")
 object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
 monitor_counts = {}
-lost_objects_time = {}
+lost_objects_time = {}  # Thêm từ điển để theo dõi thời gian mất của từng đối tượng
 for obj in object_names:
     monitor_counts[obj] = st.sidebar.number_input(f"Enter number of {obj} to monitor", min_value=0, value=0, step=1)
 
@@ -136,13 +136,15 @@ if cap is not None and start_button:
         # Kiểm tra vật thể thiếu
         for obj in object_names:
             if obj not in detected_objects or detected_objects[obj] < monitor_counts.get(obj, 0):
-                if obj not in alerted_objects:
-                    alerted_objects.add(obj)
-                    # Tính toán thời gian mất
-                    lost_time_seconds = time() - start_time  # Tính từ lúc video bắt đầu
+                if obj not in lost_objects_time:
+                    lost_objects_time[obj] = time()  # Ghi nhận thời gian mất khi lần đầu không thấy đối tượng
+                else:
+                    lost_time_seconds = time() - lost_objects_time[obj]  # Tính thời gian mất từ lần đầu không thấy
                     lost_time = str(timedelta(seconds=int(lost_time_seconds)))  # Chuyển đổi sang giờ:phút:giây
-                    st.warning(f"ALERT: {obj} is missing! Time lost: {lost_time}")
-                    play_alert_sound()  # Phát âm thanh cảnh báo
+                    if obj not in alerted_objects:
+                        alerted_objects.add(obj)
+                        st.warning(f"ALERT: {obj} is missing! Time lost: {lost_time}")
+                        play_alert_sound()  # Phát âm thanh cảnh báo
                     
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
