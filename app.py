@@ -79,6 +79,8 @@ if cap is not None and start_button:
     missing_object_counter = {obj: 0 for obj in object_names}  # Đặt lại bộ đếm khi bắt đầu
     lost_objects_time = {}  # Thêm từ điển để theo dõi thời gian mất của từng đối tượng
     alerted_objects = set()  # Để theo dõi các đối tượng đã cảnh báo
+    appeared_objects = set()  # Để theo dõi những vật thể đã xuất hiện ít nhất một lần
+
     start_time = time()
 
     while True:
@@ -133,28 +135,30 @@ if cap is not None and start_button:
                     detected_objects[label] += 1
                 else:
                     detected_objects[label] = 1
+                    appeared_objects.add(label)  # Đánh dấu vật thể đã xuất hiện
 
         # Kiểm tra vật thể thiếu và đã quay lại
         for obj in object_names:
             current_count = detected_objects.get(obj, 0)
 
             # Chỉ tính thời gian mất khi vật thể đã xuất hiện ít nhất một lần
-            if current_count == 0:  # Đối tượng không xuất hiện trong khung hình
-                if obj not in lost_objects_time:
-                    lost_objects_time[obj] = time()  # Lưu thời gian mất đối tượng lần đầu
-                else:
-                    lost_duration = time() - lost_objects_time[obj]
-                    lost_time_str = str(timedelta(seconds=int(lost_duration)))
+            if obj in appeared_objects:
+                if current_count == 0:  # Đối tượng không xuất hiện trong khung hình
+                    if obj not in lost_objects_time:
+                        lost_objects_time[obj] = time()  # Lưu thời gian mất đối tượng lần đầu
+                    else:
+                        lost_duration = time() - lost_objects_time[obj]
+                        lost_time_str = str(timedelta(seconds=int(lost_duration)))
 
-                    if obj not in alerted_objects and lost_duration >= frame_limit:
-                        alerted_objects.add(obj)
-                        st.warning(f"⚠️ ALERT: '{obj}' is missing for {lost_time_str}!")  # Cảnh báo theo thời gian mất
-                        play_alert_sound()  # Phát âm thanh cảnh báo khi đối tượng bị mất
-            else:  # Đối tượng xuất hiện trở lại
-                if obj in lost_objects_time:  # Vật thể quay lại sau khi mất
-                    del lost_objects_time[obj]  # Xóa thời gian mất
-                if obj in alerted_objects:  # Xóa cảnh báo đã thông báo trước đó
-                    alerted_objects.remove(obj)
+                        if obj not in alerted_objects and lost_duration >= frame_limit:
+                            alerted_objects.add(obj)
+                            st.warning(f"⚠️ ALERT: '{obj}' is missing for {lost_time_str}!")  # Cảnh báo theo thời gian mất
+                            play_alert_sound()  # Phát âm thanh cảnh báo khi đối tượng bị mất
+                else:  # Đối tượng xuất hiện trở lại
+                    if obj in lost_objects_time:  # Vật thể quay lại sau khi mất
+                        del lost_objects_time[obj]  # Xóa thời gian mất
+                    if obj in alerted_objects:  # Xóa cảnh báo đã thông báo trước đó
+                        alerted_objects.remove(obj)
 
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
