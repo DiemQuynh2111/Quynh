@@ -51,7 +51,7 @@ cap = None  # Biến để lưu nguồn video
 # Khởi tạo pygame để phát âm thanh
 pygame.init()
 def play_alert_sound():
-    alert_audio_file = '/mnt/data/police.wav'  # Đường dẫn đến file âm thanh cảnh báo
+    alert_audio_file = 'police.wav'  # Đường dẫn đến file âm thanh cảnh báo
     if os.path.exists(alert_audio_file):
         pygame.mixer.music.load(alert_audio_file)
         pygame.mixer.music.play()
