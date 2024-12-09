@@ -6,7 +6,6 @@ import gdown
 from time import time
 import io
 from datetime import timedelta
-import winsound
 
 # Tải YOLO weights và config nếu chưa có
 weights_file = "yolov3.weights"
@@ -57,11 +56,13 @@ stop_button = st.button("Stop and Delete Video")
 
 cap = None  # Biến để lưu nguồn video
 
-# Âm thanh cảnh báo
+# Đọc file âm thanh cảnh báo (police.wav)
 def play_alert_sound():
-    frequency = 2500  # tần số âm thanh (Hz)
-    duration = 1000  # thời gian phát âm thanh (ms)
-    winsound.Beep(frequency, duration)  # phát âm thanh cảnh báo
+    alert_audio_file = 'police.wav'  # Đường dẫn đến file âm thanh police.wav
+    if os.path.exists(alert_audio_file):
+        with open(alert_audio_file, 'rb') as f:
+            audio_bytes = f.read()
+            st.audio(audio_bytes, format='audio/wav')
 
 # Xử lý video từ nguồn
 if video_source == "Upload File":
