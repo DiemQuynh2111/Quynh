@@ -82,7 +82,6 @@ if cap is not None and start_button:
     lost_objects_time = {}  # Thêm từ điển để theo dõi thời gian mất của từng đối tượng
     alerted_objects = set()  # Để theo dõi các đối tượng đã cảnh báo
     appeared_objects = set()  # Để theo dõi những vật thể đã xuất hiện ít nhất một lần
-
     start_time = time()
     frame_skip = 2  # Bỏ qua mỗi 2 khung hình
     frame_counter = 0
@@ -97,7 +96,7 @@ if cap is not None and start_button:
         if frame_counter % frame_skip != 0:
             frame_counter += 1
             continue
-        
+
         frame_resized = cv2.resize(frame, (416, 416))  # Giảm độ phân giải của frame
 
         # Phát hiện vật thể
@@ -159,6 +158,7 @@ if cap is not None and start_button:
                     lost_duration = time() - lost_objects_time[obj]
                     lost_time_str = str(timedelta(seconds=int(lost_duration)))
 
+                    # Kiểm tra chỉ phát âm thanh khi vật thể đã mất đủ thời gian
                     if obj not in alerted_objects and lost_duration >= frame_limit:
                         alerted_objects.add(obj)
                         st.warning(f"⚠️ ALERT: '{obj}' is missing for {lost_time_str}!")
