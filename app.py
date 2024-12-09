@@ -74,7 +74,8 @@ elif video_source == "YouTube URL":
 # Kiểm tra sự tồn tại của video
 if os.path.exists(temp_video_path):
     try:
-        st.video(temp_video_path, format="video/mp4", use_container_width=True)
+        # Hiển thị video mà không sử dụng 'use_container_width'
+        st.video(temp_video_path)
 
         # Thêm nút điều khiển Start và Stop
         col1, col2 = st.columns(2)
@@ -135,4 +136,3 @@ if os.path.exists(temp_video_path):
         st.error(f"Error displaying video: {e}")
 else:
     st.info("Please upload a video or provide a YouTube URL.")
-
