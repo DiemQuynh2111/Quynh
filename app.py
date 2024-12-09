@@ -4,6 +4,7 @@ import streamlit as st
 import os
 import gdown
 from pytube import YouTube
+import tempfile
 
 # Kiểm tra và tải tệp yolov3.weights từ Google Drive nếu chưa tồn tại
 weights_file = "yolov3.weights"
@@ -100,6 +101,8 @@ if os.path.exists(temp_video_path):
     prev_objects = {obj: True for obj in object_names}
     time_lost = {}
 
+    st.video(temp_video_path)
+
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
@@ -112,12 +115,12 @@ if os.path.exists(temp_video_path):
                 current_time = frame_count / fps
                 time_lost[obj] = current_time
                 st.warning(f"{obj.upper()} bị mất lúc: {int(current_time // 60)}:{int(current_time % 60)}")
+                # Phát âm thanh cảnh báo
+                st.audio("https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg", format="audio/ogg")
 
             prev_objects[obj] = detected
 
         frame_count += 1
-        # Hiển thị khung hình
-        st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), channels="RGB", use_column_width=True)
 
     cap.release()
     os.remove(temp_video_path)
