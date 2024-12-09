@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import streamlit as st
 import os
+from playsound import playsound  # Thêm thư viện phát âm thanh
 
 # Tải YOLO weights và config nếu chưa có
 weights_file = "yolov3.weights"
@@ -126,6 +127,7 @@ if cap is not None and start_button:
                 if obj not in alerted_objects:
                     # Nếu đối tượng mất và chưa cảnh báo, hiển thị cảnh báo ngay lập tức
                     st.warning(f"⚠️ ALERT: '{obj}' is missing!")
+                    playsound('police.wav')  # Phát âm thanh cảnh báo (chú ý đường dẫn đến file âm thanh)
                     alerted_objects.add(obj)  # Đánh dấu đối tượng đã cảnh báo
 
         # Vẽ thông tin lên video
