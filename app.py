@@ -1,136 +1,157 @@
 import cv2
 import numpy as np
 import streamlit as st
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode, RTCConfiguration
 import os
 import gdown
-import yt_dlp
-from time import time
 
-# Tải YOLO weights và config nếu chưa có
+# Kiểm tra và tải tệp yolov3.weights từ Google Drive nếu chưa tồn tại
 weights_file = "yolov3.weights"
+if not os.path.exists(weights_file):
+    drive_url = "https://drive.google.com/uc?id=11rE4um7BB12mtsgiq-D774qprMaRhjpm"
+    st.write("Downloading yolov3.weights from Google Drive...")
+    gdown.download(drive_url, weights_file, quiet=False)
+
+# Kiểm tra và tải các tệp cấu hình
 config_file = "yolov3.cfg"
 classes_file = "yolov3.txt"
 
-if not os.path.exists(weights_file):
-    gdown.download("https://drive.google.com/uc?id=11rE4um7BB12mtsgiq-D774qprMaRhjpm", weights_file, quiet=False)
-
 if not os.path.exists(config_file) or not os.path.exists(classes_file):
-    st.error("Missing YOLO config or classes file.")
+    st.error("Tệp cấu hình hoặc tệp classes không tồn tại. Vui lòng kiểm tra lại!")
     st.stop()
 
-# Đọc danh sách các lớp
+# Đọc các lớp từ tệp
 with open(classes_file, 'r') as f:
     classes = [line.strip() for line in f.readlines()]
+
+# Tạo màu sắc ngẫu nhiên cho các lớp đối tượng
 COLORS = np.random.uniform(0, 255, size=(len(classes), 3))
 
 # Tải mô hình YOLO
-net = cv2.dnn.readNet(weights_file, config_file)
+try:
+    net = cv2.dnn.readNet(weights_file, config_file)
+except Exception as e:
+    st.error(f"Lỗi khi tải mô hình YOLO: {e}")
+    st.stop()
 
-# Hàm xử lý layer
+# Hàm lấy các lớp đầu ra từ YOLO
 def get_output_layers(net):
     layer_names = net.getLayerNames()
     return [layer_names[i - 1] for i in net.getUnconnectedOutLayers()]
 
-# Giao diện Streamlit
+# Hàm xử lý YOLO
+def detect_objects(frame, object_names, object_counts_input):
+    if frame is None:
+        return frame  # Bỏ qua nếu khung hình là None
+    
+    height, width, _ = frame.shape
+    blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+    net.setInput(blob)
+    outs = net.forward(get_output_layers(net))
+
+    class_ids = []
+    confidences = []
+    boxes = []
+    detected_objects = {obj: 0 for obj in object_names}
+
+    for out in outs:
+        for detection in out:
+            scores = detection[5:]
+            class_id = np.argmax(scores)
+            confidence = scores[class_id]
+            if confidence > 0.5 and classes[class_id].lower() in object_names:
+                center_x = int(detection[0] * width)
+                center_y = int(detection[1] * height)
+                w = int(detection[2] * width)
+                h = int(detection[3] * height)
+                x = int(center_x - w / 2)
+                y = int(center_y - h / 2)
+                boxes.append([x, y, w, h])
+                confidences.append(float(confidence))
+                class_ids.append(class_id)
+
+    # Áp dụng Non-Maximum Suppression (NMS)
+    indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
+
+    for i in indices.flatten():
+        box = boxes[i]
+        x, y, w, h = box
+        color = COLORS[class_ids[i]]
+        label = str(classes[class_ids[i]])
+        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+        cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+        detected_objects[classes[class_ids[i]].lower()] += 1
+
+    return frame, detected_objects
+
+# Xác định lớp xử lý video
+class VideoTransformer(VideoTransformerBase):
+    def __init__(self, object_names, object_counts_input):
+        self.object_names = object_names
+        self.object_counts_input = object_counts_input
+
+    def transform(self, frame):
+        if frame is None:
+            return None  # Trả về None nếu frame là None
+
+        try:
+            frame = cv2.cvtColor(frame.to_ndarray(format="bgr24"), cv2.COLOR_BGR2RGB)
+            processed_frame, detected_objects = detect_objects(frame, self.object_names, self.object_counts_input)
+
+            # Hiển thị thông báo nếu có vật thể xuất hiện
+            for obj, count in detected_objects.items():
+                if count > 0:
+                    st.write(f"Detected {count} {obj}(s)")
+
+            return cv2.cvtColor(processed_frame, cv2.COLOR_RGB2BGR)
+        except Exception as e:
+            st.error(f"Lỗi trong quá trình xử lý video: {e}")
+            return frame.to_ndarray(format="bgr24")
+
+# Streamlit UI
 st.title("Object Detection with YOLO")
 
-# Thanh bên trái để nhập thông tin
-st.sidebar.header("Settings")
-object_names_input = st.sidebar.text_input("Enter Object Names (comma separated)", "cell phone,laptop,umbrella")
+# Câu hỏi nhập tên đối tượng cần tìm
+object_names_input = st.sidebar.text_input('Enter Object Names (comma separated)', 'cell phone,laptop,umbrella')
 object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
 
-# Thanh nhập số lượng vật thể để giám sát
-monitor_counts = {}
+# Nhập số lượng vật thể cần giám sát
+object_counts_input = {}
 for obj in object_names:
-    monitor_counts[obj] = st.sidebar.number_input(f"Enter number of {obj} to monitor", min_value=0, value=0, step=1)
+    object_counts_input[obj] = st.sidebar.number_input(f'Enter number of {obj} to monitor', min_value=0, value=0, step=1)
 
-frame_limit = st.sidebar.slider("Set Frame Limit for Alarm", 1, 10, 3)
+# Cấu hình WebRTC
+RTC_CONFIGURATION = RTCConfiguration({
+    "iceServers": [
+        {"urls": ["stun:stun.l.google.com:19302"]},
+        {"urls": ["stun:stun1.l.google.com:19302"]}
+    ]
+})
 
-# Chọn video source
-video_source = st.radio("Choose Video Source", ["Upload File", "YouTube URL"])
-temp_video_path = "temp_video.mp4"
+# Hiển thị video trong webRTC
+video_source = st.radio("Choose video source", ["Upload File", "Use Webcam"])
 
-# Nút điều khiển
-start_button = st.button("Start Detection")
-stop_button = st.button("Stop and Delete Video")
-
-# Nếu video đã được tải lên
 if video_source == "Upload File":
     uploaded_file = st.file_uploader("Upload a video file", type=["mp4", "avi", "mov", "mkv"])
     if uploaded_file is not None:
-        with open(temp_video_path, "wb") as f:
+        with open("uploaded_video.mp4", "wb") as f:
             f.write(uploaded_file.read())
         st.success("Video uploaded successfully!")
-
-elif video_source == "YouTube URL":
-    youtube_url = st.text_input("Paste YouTube URL here")
-    if youtube_url:
-        st.video(youtube_url)
-
-# Kiểm tra nếu video đã được tải lên
-if os.path.exists(temp_video_path):
-    cap = cv2.VideoCapture(temp_video_path)
-    ret, frame = cap.read()
-
-    if start_button:
-        st.session_state.running = True
-        st.session_state.cap = cap
-        st.session_state.start_time = time()
-
-    if stop_button:
-        st.session_state.running = False
-        st.session_state.cap.release()
-        st.session_state.cap = None
-        os.remove(temp_video_path)
-        st.success("Video has been stopped and deleted.")
-
-    if 'running' in st.session_state and st.session_state.running:
-        cap = st.session_state.cap
-        ret, frame = cap.read()
-
-        if not ret:
-            st.warning("Video ended.")
-            st.session_state.running = False
-            cap.release()
-
-        # Xử lý phát hiện vật thể
-        blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
-        net.setInput(blob)
-        outs = net.forward(get_output_layers(net))
-
-        height, width, _ = frame.shape
-        detected_objects = {}
-
-        for out in outs:
-            for detection in out:
-                scores = detection[5:]
-                class_id = np.argmax(scores)
-                confidence = scores[class_id]
-                if confidence > 0.5 and classes[class_id] in object_names:
-                    label = str(classes[class_id])
-                    color = COLORS[class_id]
-                    center_x = int(detection[0] * width)
-                    center_y = int(detection[1] * height)
-                    w = int(detection[2] * width)
-                    h = int(detection[3] * height)
-                    x = center_x - w // 2
-                    y = center_y - h // 2
-                    cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-                    cv2.putText(frame, label, (x - 10, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-                    if label not in detected_objects:
-                        detected_objects[label] = {'count': 1, 'time': time() - st.session_state.start_time}
-                    else:
-                        detected_objects[label]['count'] += 1
-                        detected_objects[label]['time'] = time() - st.session_state.start_time
-
-        # Hiển thị video đã xử lý
-        st.image(frame, channels="BGR", use_container_width=True)
-
-        # Cảnh báo khi vượt qua giới hạn
-        for obj, info in detected_objects.items():
-            if monitor_counts.get(obj, 0) > 0 and info['count'] >= monitor_counts[obj]:
-                st.warning(f"ALERT: {obj} detected for {info['time']} seconds!")
-
 else:
-    st.info("Please upload a video or provide a YouTube URL.")
+    st.warning("Please upload a video to proceed.")
+
+stop_button = st.button("Stop and Delete Video")
+
+if stop_button:
+    # Xóa video
+    if os.path.exists("uploaded_video.mp4"):
+        os.remove("uploaded_video.mp4")
+    st.success("Video has been stopped and deleted.")
+
+webrtc_streamer(
+    key="object-detection",
+    mode=WebRtcMode.SENDRECV,
+    video_processor_factory=lambda: VideoTransformer(object_names, object_counts_input),
+    rtc_configuration=RTC_CONFIGURATION,
+    media_stream_constraints={"video": True, "audio": False},  # Chỉ bật video
+)
