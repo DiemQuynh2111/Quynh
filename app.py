@@ -56,15 +56,21 @@ stop_button = st.button("Stop and Delete Video")
 
 cap = None  # Biến để lưu nguồn video
 
+# Đảm bảo thư mục lưu file âm thanh đã tồn tại
+audio_file_path = "/mnt/data/police.wav"
+audio_dir = os.path.dirname(audio_file_path)
+
+if not os.path.exists(audio_dir):
+    os.makedirs(audio_dir)
+
 # Tải file âm thanh cảnh báo từ Google Drive nếu chưa có
 audio_file_url = "https://drive.google.com/uc?id=19tOeyYVLZKHD9ETU4HHecHNYwoIa4sWq"  # ID từ Google Drive
-audio_file_path = "/mnt/data/police.wav"
 
 # Tải file âm thanh nếu chưa có
 if not os.path.exists(audio_file_path):
     gdown.download(audio_file_url, audio_file_path, quiet=False)
 
-# Phát âm thanh cảnh báo
+# Đọc file âm thanh cảnh báo
 def play_alert_sound():
     if os.path.exists(audio_file_path):
         with open(audio_file_path, 'rb') as f:
@@ -149,20 +155,10 @@ if cap is not None and start_button:
                 missing_object_counter[obj] += 1
                 if missing_object_counter[obj] >= frame_limit and obj not in alerted_objects:
                     alerted_objects.add(obj)
-                    st.warning(f"⚠️ ALERT: '{obj}' is missing!")
+                    missing_duration = str(timedelta(seconds=int(time() - start_time)))  # Thời gian mất
+                    st.warning(f"⚠️ ALERT: '{obj}' is missing for {missing_duration}!")
                     play_alert_sound()  # Phát âm thanh cảnh báo khi đối tượng bị mất
             else:  # Đối tượng xuất hiện trở lại
                 if missing_object_counter[obj] > 0:
                     missing_object_counter[obj] = 0  # Đặt lại bộ đếm khi vật thể xuất hiện
-                if obj in alerted_objects:
-                    alerted_objects.remove(obj)  # Xóa cảnh báo khi đối tượng quay lại
-
-        # Hiển thị video
-        stframe.image(frame, channels="BGR", use_container_width=True)
-
-if stop_button:
-    if cap:
-        cap.release()
-    if os.path.exists(temp_video_path):
-        os.remove(temp_video_path)
-    st.success("Video stopped and temporary file deleted.")
+                if obj 
