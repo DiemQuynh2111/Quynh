@@ -160,4 +160,16 @@ if cap is not None and start_button:
             else:  # Đối tượng xuất hiện trở lại
                 if obj in lost_objects_time:  # Vật thể quay lại sau khi mất
                     del lost_objects_time[obj]  # Xóa thời gian mất
-                if obj in alerted_o
+                if obj in alerted_objects:  # Xóa cảnh báo đã thông báo trước đó
+                    alerted_objects.remove(obj)
+
+        # Hiển thị video
+        stframe.image(frame, channels="BGR", use_container_width=True)
+        frame_counter += 1
+
+if stop_button:
+    if cap:
+        cap.release()
+    if os.path.exists(temp_video_path):
+        os.remove(temp_video_path)
+    st.success("Video stopped and temporary file deleted.")
