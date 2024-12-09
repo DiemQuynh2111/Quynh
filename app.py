@@ -23,10 +23,8 @@ with open(classes_file, 'r') as f:
     classes = [line.strip() for line in f.readlines()]
 COLORS = np.random.uniform(0, 255, size=(len(classes), 3))
 
-# Tải mô hình YOLO và chuyển sang sử dụng GPU nếu có
+# Tải mô hình YOLO
 net = cv2.dnn.readNet(weights_file, config_file)
-net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
-net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
 
 # Hàm lấy layer đầu ra
 def get_output_layers(net):
@@ -41,10 +39,11 @@ st.sidebar.header("Settings")
 object_names_input = st.sidebar.text_input("Enter Object Names (comma separated)", "cell phone,laptop,umbrella")
 object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
 monitor_counts = {}
+lost_objects_time = {}
 for obj in object_names:
     monitor_counts[obj] = st.sidebar.number_input(f"Enter number of {obj} to monitor", min_value=0, value=0, step=1)
 
-frame_limit = st.sidebar.slider("Set Frame Limit for Alarm (frames)", 1, 10, 3)
+frame_limit = st.sidebar.slider("Set Frame Limit for Alarm (seconds)", 1, 10, 3)
 
 # Chọn nguồn video
 video_source = st.radio("Choose Video Source", ["Upload File"])
@@ -58,7 +57,7 @@ cap = None  # Biến để lưu nguồn video
 
 # Đọc file âm thanh cảnh báo (police.wav)
 def play_alert_sound():
-    alert_audio_file = 'police.wav'  # Đường dẫn đến file âm thanh police.wav
+    alert_audio_file = '/mnt/data/police.wav'  # Đường dẫn đến file âm thanh police.wav
     if os.path.exists(alert_audio_file):
         with open(alert_audio_file, 'rb') as f:
             audio_bytes = f.read()
@@ -77,21 +76,20 @@ if video_source == "Upload File":
 if cap is not None and start_button:
     stframe = st.empty()
     detected_objects = {}
-    lost_objects_time = {}  # Thêm từ điển để theo dõi thời gian mất của từng đối tượng
-    alerted_objects = set()  # Để theo dõi các đối tượng đã cảnh báo
-    appeared_objects = set()  # Để theo dõi những vật thể đã xuất hiện ít nhất một lần
-    frame_counter = 0
+    lost_objects_time = {}
+    alerted_objects = set()
+    start_time = time()
+
+    # Gán thời gian mất mặc định cho các đối tượng không xuất hiện từ đầu
+    for obj in object_names:
+        if monitor_counts[obj] > 0:
+            lost_objects_time[obj] = start_time
 
     while True:
         ret, frame = cap.read()
         if not ret:
             st.warning("Video ended or no frames available.")
             break
-
-        # Bỏ qua một số khung hình để tăng tốc độ
-        if frame_counter % 2 != 0:
-            frame_counter += 1
-            continue
 
         # Phát hiện vật thể
         blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
@@ -104,7 +102,7 @@ if cap is not None and start_button:
         confidences = []
         detected_objects.clear()
 
-          # Lấy thông tin từ các lớp đầu ra
+        # Lấy thông tin từ các lớp đầu ra
         for out in outs:
             for detection in out:
                 scores = detection[5:]
@@ -121,7 +119,7 @@ if cap is not None and start_button:
                     class_ids.append(class_id)
                     confidences.append(float(confidence))
 
-        # Áp dụng Non-Maximum Suppression để loại bỏ các bounding box chồng lấp
+        # Áp dụng Non-Maximum Suppression
         indices = cv2.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
 
         if len(indices) > 0:
@@ -139,41 +137,32 @@ if cap is not None and start_button:
                     detected_objects[label] += 1
                 else:
                     detected_objects[label] = 1
-                    appeared_objects.add(label)  # Đánh dấu vật thể đã xuất hiện
 
         # Kiểm tra vật thể thiếu và đã quay lại
+        current_time = time()
         for obj in object_names:
+            required_count = monitor_counts.get(obj, 0)
             current_count = detected_objects.get(obj, 0)
 
-            if current_count == 0:  # Đối tượng không xuất hiện trong khung hình
-                if obj not in lost_objects_time and obj in appeared_objects:
-                    lost_objects_time[obj] = time()  # Lưu thời gian mất đối tượng lần đầu
-                elif obj in lost_objects_time:
-                    lost_duration = time() - lost_objects_time[obj]
+            if current_count < required_count:  # Đối tượng bị mất
+                if obj not in lost_objects_time:
+                    lost_objects_time[obj] = current_time
+                else:
+                    lost_duration = current_time - lost_objects_time[obj]
                     lost_time_str = str(timedelta(seconds=int(lost_duration)))
 
-                    # Kiểm tra chỉ phát âm thanh khi vật thể đã mất đủ thời gian
                     if obj not in alerted_objects and lost_duration >= frame_limit:
                         alerted_objects.add(obj)
                         st.warning(f"⚠️ ALERT: '{obj}' is missing for {lost_time_str}!")
-                        play_alert_sound()  # Phát âm thanh cảnh báo khi đối tượng bị mất
-            else:  # Đối tượng xuất hiện trở lại
-                if obj in lost_objects_time:  # Vật thể quay lại sau khi mất
-                    del lost_objects_time[obj]  # Xóa thời gian mất
-                if obj in alerted_objects:  # Xóa cảnh báo đã thông báo trước đó
+                        play_alert_sound()
+            else:  # Đối tượng quay lại
+                if obj in lost_objects_time:
+                    del lost_objects_time[obj]
+                if obj in alerted_objects:
                     alerted_objects.remove(obj)
-
-        # Kiểm tra số lượng đối tượng hiện tại
-        for obj in object_names:
-            if detected_objects.get(obj, 0) < monitor_counts[obj]:
-                if obj not in alerted_objects:
-                    alerted_objects.add(obj)
-                    st.warning(f"⚠️ ALERT: Not enough '{obj}' detected!")
-                    play_alert_sound()  # Phát âm thanh cảnh báo ngay lập tức
 
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
-        frame_counter += 1
 
 if stop_button:
     if cap:
