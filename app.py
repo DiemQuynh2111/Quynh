@@ -161,4 +161,15 @@ if cap is not None and start_button:
             else:  # Đối tượng xuất hiện trở lại
                 if missing_object_counter[obj] > 0:
                     missing_object_counter[obj] = 0  # Đặt lại bộ đếm khi vật thể xuất hiện
-                if obj 
+                if obj in alerted_objects:
+                    alerted_objects.remove(obj)  # Xóa cảnh báo khi đối tượng quay lại
+
+        # Hiển thị video
+        stframe.image(frame, channels="BGR", use_container_width=True)
+
+if stop_button:
+    if cap:
+        cap.release()
+    if os.path.exists(temp_video_path):
+        os.remove(temp_video_path)
+    st.success("Video stopped and temporary file deleted.")
