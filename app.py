@@ -2,8 +2,6 @@ import cv2
 import numpy as np
 import streamlit as st
 import os
-from time import time
-from datetime import timedelta
 
 # Tải YOLO weights và config nếu chưa có
 weights_file = "yolov3.weights"
@@ -35,7 +33,6 @@ st.sidebar.header("Settings")
 object_names_input = st.sidebar.text_input("Enter Object Names (comma separated)", "cell phone,laptop,umbrella")
 object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
 monitor_counts = {obj: st.sidebar.number_input(f"Enter number of {obj} to monitor", min_value=0, value=1, step=1) for obj in object_names}
-frame_limit = st.sidebar.slider("Set Frame Limit for Alarm (seconds)", 1, 10, 3)
 
 # Chọn nguồn video
 video_source = st.radio("Choose Video Source", ["Upload File"])
@@ -60,11 +57,8 @@ if video_source == "Upload File":
 if cap is not None and start_button:
     stframe = st.empty()
     detected_objects = {}
-    lost_objects_time = {}  # Lưu thời điểm bắt đầu mất đối tượng
-    alerted_objects = set()  # Để theo dõi các đối tượng đã cảnh báo
 
-    # Lấy FPS của video
-    fps = cap.get(cv2.CAP_PROP_FPS)
+    alerted_objects = set()  # Để theo dõi các đối tượng đã cảnh báo
 
     while True:
         ret, frame = cap.read()
@@ -119,7 +113,7 @@ if cap is not None and start_button:
                 else:
                     detected_objects[label] = 1
 
-        # Kiểm tra vật thể thiếu và tính thời gian mất
+        # Kiểm tra vật thể thiếu và ngay lập tức cảnh báo
         overlay_text = []
         for obj in object_names:
             required_count = monitor_counts.get(obj, 0)
@@ -129,22 +123,10 @@ if cap is not None and start_button:
             overlay_text.append(f"{current_count}/{required_count} {obj}")
 
             if current_count < required_count:  # Đối tượng bị mất
-                if obj not in lost_objects_time:
-                    # Đối tượng bắt đầu mất, lưu số khung hình và thời gian bắt đầu mất
-                    lost_objects_time[obj] = cap.get(cv2.CAP_PROP_POS_FRAMES)
-                else:
-                    # Đối tượng vẫn đang mất, tính thời gian mất dựa trên số khung hình
-                    lost_frame_count = cap.get(cv2.CAP_PROP_POS_FRAMES) - lost_objects_time[obj]
-                    lost_time_str = str(timedelta(seconds=int(lost_frame_count / fps)))
-
-                    # Chỉ cảnh báo khi đối tượng mất và chưa cảnh báo
-                    if obj not in alerted_objects and lost_frame_count / fps >= frame_limit:
-                        st.warning(f"⚠️ ALERT: '{obj}' is missing for {lost_time_str}!")
-                        alerted_objects.add(obj)  # Đánh dấu đối tượng đã cảnh báo
-            else:
-                # Nếu đối tượng không bị mất, xóa trạng thái trong từ điển
-                if obj in lost_objects_time:
-                    del lost_objects_time[obj]
+                if obj not in alerted_objects:
+                    # Nếu đối tượng mất và chưa cảnh báo, hiển thị cảnh báo ngay lập tức
+                    st.warning(f"⚠️ ALERT: '{obj}' is missing!")
+                    alerted_objects.add(obj)  # Đánh dấu đối tượng đã cảnh báo
 
         # Vẽ thông tin lên video
         for i, text in enumerate(overlay_text):
