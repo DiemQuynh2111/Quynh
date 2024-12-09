@@ -4,80 +4,67 @@ import streamlit as st
 import os
 import gdown
 from pytube import YouTube
-import tempfile
 
-# Kiểm tra và tải tệp yolov3.weights từ Google Drive nếu chưa tồn tại
+# Tải YOLO weights và config nếu chưa có
 weights_file = "yolov3.weights"
-if not os.path.exists(weights_file):
-    drive_url = "https://drive.google.com/uc?id=11rE4um7BB12mtsgiq-D774qprMaRhjpm"
-    st.write("Downloading yolov3.weights from Google Drive...")
-    gdown.download(drive_url, weights_file, quiet=False)
-
-# Kiểm tra và tải các tệp cấu hình
 config_file = "yolov3.cfg"
 classes_file = "yolov3.txt"
 
+if not os.path.exists(weights_file):
+    gdown.download("https://drive.google.com/uc?id=11rE4um7BB12mtsgiq-D774qprMaRhjpm", weights_file, quiet=False)
+
 if not os.path.exists(config_file) or not os.path.exists(classes_file):
-    st.error("Tệp cấu hình hoặc tệp classes không tồn tại. Vui lòng kiểm tra lại!")
+    st.error("Missing YOLO config or classes file.")
     st.stop()
 
-# Đọc các lớp từ tệp
+# Đọc danh sách các lớp
 with open(classes_file, 'r') as f:
     classes = [line.strip() for line in f.readlines()]
-
 COLORS = np.random.uniform(0, 255, size=(len(classes), 3))
 
 # Tải mô hình YOLO
-try:
-    net = cv2.dnn.readNet(weights_file, config_file)
-except Exception as e:
-    st.error(f"Lỗi khi tải mô hình YOLO: {e}")
-    st.stop()
+net = cv2.dnn.readNet(weights_file, config_file)
 
-# Hàm lấy các lớp đầu ra từ YOLO
+# Hàm xử lý layer
 def get_output_layers(net):
     layer_names = net.getLayerNames()
     return [layer_names[i - 1] for i in net.getUnconnectedOutLayers()]
 
-# Hàm phát hiện đối tượng
-def detect_objects(frame, object_names, prev_objects):
-    height, width, _ = frame.shape
-    blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
-    net.setInput(blob)
-    outs = net.forward(get_output_layers(net))
+# Giao diện Streamlit
+st.title("Object Detection with YOLO")
 
-    detected_objects = {obj: False for obj in object_names}
-
-    for out in outs:
-        for detection in out:
-            scores = detection[5:]
-            class_id = np.argmax(scores)
-            confidence = scores[class_id]
-            if confidence > 0.5 and classes[class_id].lower() in object_names:
-                detected_objects[classes[class_id].lower()] = True
-
-    return detected_objects
-
-# Streamlit UI
-st.title("Object Detection from Video (File Upload or YouTube)")
-
-# Nhập đối tượng cần theo dõi
-object_names_input = st.sidebar.text_input('Enter Object Names (comma separated)', 'cell phone,laptop,umbrella')
+# Thanh bên trái để nhập thông tin
+st.sidebar.header("Settings")
+object_names_input = st.sidebar.text_input("Enter Object Names (comma separated)", "cell phone,laptop,umbrella")
 object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
 
-# Chọn cách tải video: từ file hoặc YouTube URL
-video_source = st.radio("Choose Video Source", ["Upload File", "YouTube URL"])
+# Thanh nhập số lượng vật thể để giám sát
+monitor_counts = {}
+for obj in object_names:
+    monitor_counts[obj] = st.sidebar.number_input(f"Enter number of {obj} to monitor", min_value=0, value=0, step=1)
 
+frame_limit = st.sidebar.slider("Set Frame Limit for Alarm", 1, 10, 3)
+
+# Chọn video source
+video_source = st.radio("Choose Video Source", ["Upload File", "YouTube URL"])
 temp_video_path = "temp_video.mp4"
 
-if video_source == "Upload File":
-    # Tải video từ máy tính lên
+if "clear" not in st.session_state:
+    st.session_state.clear = False
+
+# Nút Clear để làm mới dữ liệu
+if st.button("Clear"):
+    st.session_state.clear = True
+    if os.path.exists(temp_video_path):
+        os.remove(temp_video_path)
+
+if video_source == "Upload File" and not st.session_state.clear:
     uploaded_file = st.file_uploader("Upload a video file", type=["mp4", "avi", "mov", "mkv"])
     if uploaded_file is not None:
         with open(temp_video_path, "wb") as f:
             f.write(uploaded_file.read())
-elif video_source == "YouTube URL":
-    # Tải video từ YouTube
+
+elif video_source == "YouTube URL" and not st.session_state.clear:
     youtube_url = st.text_input("Paste YouTube URL here")
     if youtube_url:
         try:
@@ -91,38 +78,41 @@ elif video_source == "YouTube URL":
         except Exception as e:
             st.error(f"Error downloading YouTube video: {e}")
 
-# Xử lý video
-if os.path.exists(temp_video_path):
-    cap = cv2.VideoCapture(temp_video_path)
-    fps = int(cap.get(cv2.CAP_PROP_FPS))
-    frame_count = 0
+if os.path.exists(temp_video_path) and not st.session_state.clear:
+    st.video(temp_video_path, format="video/mp4", use_container_width=True)
 
-    # Theo dõi đối tượng mất
-    prev_objects = {obj: True for obj in object_names}
-    time_lost = {}
+    # Thêm nút điều khiển Start và Stop
+    col1, col2 = st.columns(2)
+    if col1.button("Start"):
+        cap = cv2.VideoCapture(temp_video_path)
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            # Xử lý phát hiện vật thể
+            blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+            net.setInput(blob)
+            outs = net.forward(get_output_layers(net))
 
-    st.video(temp_video_path)
+            height, width, _ = frame.shape
+            for out in outs:
+                for detection in out:
+                    scores = detection[5:]
+                    class_id = np.argmax(scores)
+                    confidence = scores[class_id]
+                    if confidence > 0.5 and classes[class_id] in object_names:
+                        label = str(classes[class_id])
+                        color = COLORS[class_id]
+                        center_x = int(detection[0] * width)
+                        center_y = int(detection[1] * height)
+                        w = int(detection[2] * width)
+                        h = int(detection[3] * height)
+                        x = center_x - w // 2
+                        y = center_y - h // 2
+                        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+                        cv2.putText(frame, label, (x - 10, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        detected_objects = detect_objects(frame, object_names, prev_objects)
-
-        for obj, detected in detected_objects.items():
-            if not detected and prev_objects[obj]:
-                current_time = frame_count / fps
-                time_lost[obj] = current_time
-                st.warning(f"{obj.upper()} bị mất lúc: {int(current_time // 60)}:{int(current_time % 60)}")
-                # Phát âm thanh cảnh báo
-                st.audio("https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg", format="audio/ogg")
-
-            prev_objects[obj] = detected
-
-        frame_count += 1
-
-    cap.release()
-    os.remove(temp_video_path)
+            st.image(frame, channels="BGR", use_container_width=True)
+        cap.release()
 else:
-    st.info("Vui lòng tải video hoặc nhập URL để bắt đầu!")
+    st.info("Please upload a video or provide a YouTube URL.")
