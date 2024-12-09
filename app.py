@@ -4,8 +4,8 @@ import streamlit as st
 import os
 import gdown
 import yt_dlp
-import pygame
 from time import time
+import io
 
 # Tải YOLO weights và config nếu chưa có
 weights_file = "yolov3.weights"
@@ -32,10 +32,6 @@ def get_output_layers(net):
     layer_names = net.getLayerNames()
     return [layer_names[i - 1] for i in net.getUnconnectedOutLayers()]
 
-# Khởi tạo pygame để chơi âm thanh
-pygame.mixer.init()
-alarm_sound = pygame.mixer.Sound("police.wav")  # Đảm bảo file police.wav tồn tại trong thư mục dự án
-
 # Giao diện Streamlit
 st.title("Object Detection with YOLO")
 
@@ -59,6 +55,9 @@ start_button = st.button("Start Detection")
 stop_button = st.button("Stop and Delete Video")
 
 cap = None  # Biến để lưu nguồn video
+
+# Âm thanh cảnh báo
+alarm_audio = "police.wav"
 
 # Xử lý video từ nguồn
 if video_source == "Upload File":
@@ -131,7 +130,8 @@ if cap is not None and start_button:
             if obj not in detected_objects or detected_objects[obj] == 0:
                 if obj not in lost_objects_time or time() - lost_objects_time[obj] > 5:  # 5 giây không phát hiện lại
                     st.warning(f"ALERT: {obj} not detected!")
-                    alarm_sound.play()  # Phát âm thanh khi vật thể mất
+                    with open(alarm_audio, "rb") as audio_file:
+                        st.audio(audio_file.read(), format="audio/wav")  # Phát âm thanh khi vật thể mất
                     lost_objects_time[obj] = time()  # Cập nhật lại thời gian mất vật thể
 
         # Hiển thị video
