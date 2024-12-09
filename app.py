@@ -79,6 +79,7 @@ if cap is not None and start_button:
     detected_objects = {}
     lost_objects = set()
     alerted_objects = set()  # Để theo dõi các đối tượng đã cảnh báo
+    start_time = time()  # Thời gian bắt đầu video
 
     while True:
         ret, frame = cap.read()
@@ -137,8 +138,8 @@ if cap is not None and start_button:
             if obj not in detected_objects or detected_objects[obj] < monitor_counts.get(obj, 0):
                 if obj not in alerted_objects:
                     alerted_objects.add(obj)
-                    # Thông báo và thời gian mất
-                    lost_time_seconds = time() - lost_objects_time.get(obj, time())
+                    # Tính toán thời gian mất
+                    lost_time_seconds = time() - start_time  # Tính từ lúc video bắt đầu
                     lost_time = str(timedelta(seconds=int(lost_time_seconds)))  # Chuyển đổi sang giờ:phút:giây
                     st.warning(f"ALERT: {obj} is missing! Time lost: {lost_time}")
                     play_alert_sound()  # Phát âm thanh cảnh báo
