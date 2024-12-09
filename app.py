@@ -4,7 +4,7 @@ import streamlit as st
 import os
 import gdown
 from time import time
-import datetime
+import io
 
 # Tải YOLO weights và config nếu chưa có
 weights_file = "yolov3.weights"
@@ -40,7 +40,6 @@ object_names_input = st.sidebar.text_input("Enter Object Names (comma separated)
 object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
 monitor_counts = {}
 lost_objects_time = {}
-alert_flags = {}  # Cờ theo dõi trạng thái cảnh báo cho mỗi vật thể
 for obj in object_names:
     monitor_counts[obj] = st.sidebar.number_input(f"Enter number of {obj} to monitor", min_value=0, value=0, step=1)
 
@@ -63,6 +62,11 @@ alarm_audio = """
     </audio>
 """
 
+# Thêm Non-Maximum Suppression (NMS) để loại bỏ các bounding boxes chồng lấn
+def apply_nms(boxes, confidences, threshold=0.4):
+    indices = cv2.dnn.NMSBoxes(boxes, confidences, score_threshold=0.5, nms_threshold=threshold)
+    return indices
+
 # Xử lý video từ nguồn
 if video_source == "Upload File":
     uploaded_file = st.file_uploader("Upload a video file", type=["mp4", "avi", "mov", "mkv"])
@@ -76,6 +80,7 @@ if video_source == "Upload File":
 if cap is not None and start_button:
     stframe = st.empty()
     detected_objects = {}
+    lost_objects = set()  # Set để theo dõi các vật thể mất
 
     while True:
         ret, frame = cap.read()
@@ -89,56 +94,59 @@ if cap is not None and start_button:
         outs = net.forward(get_output_layers(net))
 
         height, width, _ = frame.shape
+        boxes = []
+        confidences = []
+        class_ids = []
+
         for out in outs:
             for detection in out:
                 scores = detection[5:]
                 class_id = np.argmax(scores)
                 confidence = scores[class_id]
                 if confidence > 0.5:
-                    label = classes[class_id].lower()
-                    if label in object_names:
-                        center_x = int(detection[0] * width)
-                        center_y = int(detection[1] * height)
-                        w = int(detection[2] * width)
-                        h = int(detection[3] * height)
-                        x = center_x - w // 2
-                        y = center_y - h // 2
-                        color = COLORS[class_id]
+                    center_x = int(detection[0] * width)
+                    center_y = int(detection[1] * height)
+                    w = int(detection[2] * width)
+                    h = int(detection[3] * height)
+                    x = center_x - w // 2
+                    y = center_y - h // 2
 
-                        # Vẽ khung và nhãn
-                        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-                        cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                    boxes.append([x, y, w, h])
+                    confidences.append(float(confidence))
+                    class_ids.append(class_id)
 
-                        # Đếm và theo dõi
-                        if label not in detected_objects:
-                            detected_objects[label] = 1
-                            lost_objects_time[label] = time()  # Lưu thời gian khi vật thể xuất hiện
-                            alert_flags[label] = False  # Chưa cảnh báo
-                        else:
-                            detected_objects[label] += 1
+        # Áp dụng NMS
+        indices = apply_nms(boxes, confidences)
 
-                        # Cảnh báo
-                        if detected_objects[label] > monitor_counts[label] and not alert_flags[label]:
-                            st.warning(f"ALERT: {label} detected more than {monitor_counts[label]} times!")
-                            alert_flags[label] = True  # Đánh dấu đã cảnh báo
+        for i in indices:
+            i = i[0]
+            x, y, w, h = boxes[i]
+            label = classes[class_ids[i]].lower()
+            color = COLORS[class_ids[i]]
+
+            # Vẽ bounding box và nhãn
+            cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+            cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+            # Đếm và theo dõi
+            if label not in detected_objects:
+                detected_objects[label] = 1
+                lost_objects_time[label] = time()  # Lưu thời gian khi vật thể xuất hiện
+                lost_objects.discard(label)  # Xóa vật thể từ danh sách mất
+            else:
+                detected_objects[label] += 1
 
         # Kiểm tra vật thể mất
         for obj in object_names:
             if obj not in detected_objects or detected_objects[obj] == 0:
-                # Nếu vật thể không xuất hiện, kiểm tra thời gian đã trôi qua
-                if obj not in lost_objects_time:  # Kiểm tra xem vật thể có trong lost_objects_time chưa
-                    lost_objects_time[obj] = 0  # Nếu chưa có, khởi tạo thời gian mất là 0
-                if time() - lost_objects_time[obj] > 5:  # 5 giây không phát hiện lại
-                    # Cảnh báo chỉ một lần
-                    if not alert_flags.get(obj, False):
+                if obj not in lost_objects_time or time() - lost_objects_time[obj] > 5:  # 5 giây không phát hiện lại
+                    if obj not in lost_objects:
+                        # Phát âm thanh cảnh báo khi vật thể mất
                         st.warning(f"ALERT: {obj} not detected!")
                         st.markdown(alarm_audio, unsafe_allow_html=True)  # Phát âm thanh khi vật thể mất
-                        alert_flags[obj] = True  # Đánh dấu đã cảnh báo
-
-                    # Tính thời gian mất và hiển thị giờ, phút, giây
-                    time_lost = time() - lost_objects_time[obj]
-                    formatted_time = str(datetime.timedelta(seconds=int(time_lost)))
-                    st.write(f"Time lost: {formatted_time}")  # Hiển thị thời gian mất
+                        lost_objects_time[obj] = time()  # Cập nhật lại thời gian mất vật thể
+                        lost_objects.add(obj)  # Thêm vật thể vào danh sách đã mất
+                        st.write(f"Time lost: {time() - lost_objects_time[obj]:.2f} seconds")  # Hiển thị thời gian mất
 
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
