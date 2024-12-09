@@ -137,8 +137,10 @@ if cap is not None and start_button:
                     lost_frame_count = cap.get(cv2.CAP_PROP_POS_FRAMES) - lost_objects_time[obj]
                     lost_time_str = str(timedelta(seconds=int(lost_frame_count / fps)))
 
-                    if lost_frame_count / fps >= frame_limit:
+                    # Chỉ cảnh báo khi đối tượng mất và chưa cảnh báo
+                    if obj not in alerted_objects and lost_frame_count / fps >= frame_limit:
                         st.warning(f"⚠️ ALERT: '{obj}' is missing for {lost_time_str}!")
+                        alerted_objects.add(obj)  # Đánh dấu đối tượng đã cảnh báo
             else:
                 # Nếu đối tượng không bị mất, xóa trạng thái trong từ điển
                 if obj in lost_objects_time:
