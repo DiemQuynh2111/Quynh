@@ -8,3 +8,4 @@ urllib3
 pytube
 yt-dlp==2024.01.06
 
+
