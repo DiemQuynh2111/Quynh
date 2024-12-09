@@ -5,6 +5,7 @@ import os
 import gdown
 from time import time
 import io
+from datetime import timedelta
 
 # Tải YOLO weights và config nếu chưa có
 weights_file = "yolov3.weights"
@@ -76,6 +77,7 @@ if cap is not None and start_button:
     stframe = st.empty()
     detected_objects = {}
     lost_objects = set()
+    alerted_objects = set()  # Để theo dõi các đối tượng đã cảnh báo
 
     while True:
         ret, frame = cap.read()
@@ -126,26 +128,19 @@ if cap is not None and start_button:
                 # Đếm và theo dõi
                 if label not in detected_objects:
                     detected_objects[label] = 1
-                    lost_objects_time[label] = time()  # Lưu thời gian khi vật thể xuất hiện
-                    lost_objects.discard(label)  # Xóa vật thể khỏi danh sách mất
                 else:
                     detected_objects[label] += 1
 
-                # Kiểm tra số lượng vật thể và cảnh báo
-                if detected_objects[label] > monitor_counts.get(label, 0):
-                    st.warning(f"ALERT: {label} detected more than {monitor_counts.get(label, 0)} times!")
-
-        # Kiểm tra vật thể mất
+        # Kiểm tra vật thể thiếu
         for obj in object_names:
-            if obj not in detected_objects or detected_objects[obj] == 0:
-                if obj not in lost_objects_time or time() - lost_objects_time[obj] > 5:  # 5 giây không phát hiện lại
-                    # Phát âm thanh cảnh báo khi vật thể mất
-                    if obj not in lost_objects:
-                        lost_objects.add(obj)
-                        st.warning(f"ALERT: {obj} not detected!")
-                        st.markdown(alarm_audio, unsafe_allow_html=True)  # Phát âm thanh khi vật thể mất
-                        st.write(f"Time lost: {time() - lost_objects_time.get(obj, 0):.2f} seconds")  # Hiển thị thời gian mất
-
+            if obj not in detected_objects or detected_objects[obj] < monitor_counts.get(obj, 0):
+                if obj not in alerted_objects:
+                    alerted_objects.add(obj)
+                    # Thông báo và thời gian mất
+                    lost_time_seconds = time() - lost_objects_time.get(obj, time())
+                    lost_time = str(timedelta(seconds=int(lost_time_seconds)))  # Chuyển đổi sang giờ:phút:giây
+                    st.warning(f"ALERT: {obj} is missing! Time lost: {lost_time}")
+                    
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
 
