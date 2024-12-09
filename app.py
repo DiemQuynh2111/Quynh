@@ -58,15 +58,17 @@ if st.button("Clear"):
     if os.path.exists(temp_video_path):
         os.remove(temp_video_path)
 
+# Tải video từ máy hoặc URL
 if video_source == "Upload File" and not st.session_state.clear:
     uploaded_file = st.file_uploader("Upload a video file", type=["mp4", "avi", "mov", "mkv"])
     if uploaded_file is not None:
         with open(temp_video_path, "wb") as f:
             f.write(uploaded_file.read())
+        st.success("Video uploaded successfully!")
 
 elif video_source == "YouTube URL" and not st.session_state.clear:
     youtube_url = st.text_input("Paste YouTube URL here")
-    if youtube_url:
+    if youtube_url and st.button("Download Video"):
         try:
             yt = YouTube(youtube_url)
             stream = yt.streams.filter(file_extension="mp4", res="360p").first()
