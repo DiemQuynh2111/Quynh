@@ -44,7 +44,7 @@ lost_objects_time = {}  # Thêm từ điển để theo dõi thời gian mất c
 for obj in object_names:
     monitor_counts[obj] = st.sidebar.number_input(f"Enter number of {obj} to monitor", min_value=0, value=0, step=1)
 
-frame_limit = st.sidebar.slider("Set Frame Limit for Alarm", 1, 10, 3)
+frame_limit = st.sidebar.slider("Set Frame Limit for Alarm (seconds)", 1, 10, 3)
 
 # Chọn nguồn video
 video_source = st.radio("Choose Video Source", ["Upload File"])
@@ -77,15 +77,15 @@ if video_source == "Upload File":
 if cap is not None and start_button:
     stframe = st.empty()
     detected_objects = {}
-    lost_objects = set()
+    lost_objects_time = {}
     alerted_objects = set()  # Để theo dõi các đối tượng đã cảnh báo
-    start_time = time()  # Thời gian bắt đầu video
+    start_time = time()
 
     while True:
         ret, frame = cap.read()
         if not ret:
             st.warning("Video ended or no frames available.")
-            break  # Dừng vòng lặp khi không còn frame để xử lý
+            break
 
         # Phát hiện vật thể
         blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
@@ -96,6 +96,7 @@ if cap is not None and start_button:
         boxes = []
         class_ids = []
         confidences = []
+        detected_objects.clear()
 
         # Lấy thông tin từ các lớp đầu ra
         for out in outs:
@@ -128,30 +129,34 @@ if cap is not None and start_button:
                 cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
                 # Đếm và theo dõi
-                if label not in detected_objects:
-                    detected_objects[label] = 1
-                else:
+                if label in detected_objects:
                     detected_objects[label] += 1
-
-        # Kiểm tra vật thể thiếu và phát âm thanh cảnh báo
-        for obj in object_names:
-            expected_count = monitor_counts.get(obj, 0)
-            detected_count = detected_objects.get(obj, 0)
-
-            if detected_count < expected_count:  # Nếu số lượng vật thể ít hơn số lượng yêu cầu
-                if obj not in lost_objects_time:
-                    lost_objects_time[obj] = time()  # Ghi nhận thời gian mất khi lần đầu không thấy đối tượng
                 else:
-                    lost_time_seconds = time() - lost_objects_time[obj]  # Tính thời gian mất từ lần đầu không thấy
-                    lost_time = str(timedelta(seconds=int(lost_time_seconds)))  # Chuyển đổi sang giờ:phút:giây
-                    
-                    # Log để kiểm tra thời gian mất
-                    st.write(f"{obj} lost for: {lost_time_seconds} seconds")
-                    
-                    if obj not in alerted_objects:
+                    detected_objects[label] = 1
+
+        # Kiểm tra vật thể thiếu và đã quay lại
+        current_time = time()
+        for obj in object_names:
+            required_count = monitor_counts.get(obj, 0)
+            current_count = detected_objects.get(obj, 0)
+
+            if current_count < required_count:  # Đối tượng bị mất
+                if obj not in lost_objects_time:
+                    lost_objects_time[obj] = current_time
+                else:
+                    lost_duration = current_time - lost_objects_time[obj]
+                    lost_time_str = str(timedelta(seconds=int(lost_duration)))
+
+                    # Kiểm tra nếu thời gian mất đạt đến giới hạn và đối tượng chưa được cảnh báo
+                    if obj not in alerted_objects and lost_duration >= frame_limit:
                         alerted_objects.add(obj)
-                        st.warning(f"ALERT: {obj} is missing! Time lost: {lost_time}")
-                        play_alert_sound()  # Phát âm thanh cảnh báo
+                        st.warning(f"⚠️ ALERT: '{obj}' is missing for {lost_time_str}!")
+                        play_alert_sound()  # Phát âm thanh cảnh báo khi đối tượng bị mất
+            else:  # Đối tượng quay lại
+                if obj in lost_objects_time:  # Vật thể quay lại sau khi mất
+                    del lost_objects_time[obj]  # Xóa thời gian mất
+                if obj in alerted_objects:  # Xóa cảnh báo đã thông báo trước đó
+                    alerted_objects.remove(obj)
 
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
