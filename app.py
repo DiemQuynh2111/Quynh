@@ -3,7 +3,6 @@ import numpy as np
 import streamlit as st
 import os
 import gdown
-import yt_dlp
 from time import time
 import io
 
@@ -47,7 +46,7 @@ for obj in object_names:
 frame_limit = st.sidebar.slider("Set Frame Limit for Alarm", 1, 10, 3)
 
 # Chọn nguồn video
-video_source = st.radio("Choose Video Source", ["Upload File", "YouTube URL"])
+video_source = st.radio("Choose Video Source", ["Upload File"])
 temp_video_path = "temp_video.mp4"
 
 # Nút điều khiển
@@ -56,8 +55,12 @@ stop_button = st.button("Stop and Delete Video")
 
 cap = None  # Biến để lưu nguồn video
 
-# Âm thanh cảnh báo
-alarm_audio = "police.wav"
+# Âm thanh cảnh báo trực tiếp (sử dụng Streamlit)
+alarm_audio = """
+    <audio autoplay>
+        <source src="https://www.soundjay.com/button/beep-07.wav" type="audio/wav">
+    </audio>
+"""
 
 # Xử lý video từ nguồn
 if video_source == "Upload File":
@@ -66,15 +69,6 @@ if video_source == "Upload File":
         with open(temp_video_path, "wb") as f:
             f.write(uploaded_file.read())
         st.success("Video uploaded successfully!")
-        cap = cv2.VideoCapture(temp_video_path)
-
-elif video_source == "YouTube URL":
-    youtube_url = st.text_input("Paste YouTube URL here")
-    if youtube_url and start_button:
-        ydl_opts = {'outtmpl': temp_video_path, 'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]'}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([youtube_url])
-        st.success("YouTube video downloaded!")
         cap = cv2.VideoCapture(temp_video_path)
 
 # Kiểm tra nếu có video để xử lý
@@ -130,8 +124,7 @@ if cap is not None and start_button:
             if obj not in detected_objects or detected_objects[obj] == 0:
                 if obj not in lost_objects_time or time() - lost_objects_time[obj] > 5:  # 5 giây không phát hiện lại
                     st.warning(f"ALERT: {obj} not detected!")
-                    with open(alarm_audio, "rb") as audio_file:
-                        st.audio(audio_file.read(), format="audio/wav")  # Phát âm thanh khi vật thể mất
+                    st.markdown(alarm_audio, unsafe_allow_html=True)  # Phát âm thanh khi vật thể mất
                     lost_objects_time[obj] = time()  # Cập nhật lại thời gian mất vật thể
 
         # Hiển thị video
