@@ -4,6 +4,7 @@ import streamlit as st
 import os
 from time import time
 from datetime import timedelta
+import pygame  # Thư viện để phát âm thanh
 
 # Tải YOLO weights và config nếu chưa có
 weights_file = "yolov3.weights"
@@ -34,7 +35,7 @@ st.title("Object Detection with YOLO")
 st.sidebar.header("Settings")
 object_names_input = st.sidebar.text_input("Enter Object Names (comma separated)", "cell phone,laptop,umbrella")
 object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
-monitor_counts = {obj: st.sidebar.number_input(f"Enter number of {obj} to monitor", min_value=0, value=0, step=1) for obj in object_names}
+monitor_counts = {obj: st.sidebar.number_input(f"Enter number of {obj} to monitor", min_value=0, value=1, step=1) for obj in object_names}
 frame_limit = st.sidebar.slider("Set Frame Limit for Alarm (seconds)", 1, 10, 3)
 
 # Chọn nguồn video
@@ -47,13 +48,13 @@ stop_button = st.button("Stop and Delete Video")
 
 cap = None  # Biến để lưu nguồn video
 
-# Đọc file âm thanh cảnh báo
+# Khởi tạo pygame để phát âm thanh
+pygame.init()
 def play_alert_sound():
     alert_audio_file = '/mnt/data/police.wav'  # Đường dẫn đến file âm thanh cảnh báo
     if os.path.exists(alert_audio_file):
-        with open(alert_audio_file, 'rb') as f:
-            audio_bytes = f.read()
-            st.audio(audio_bytes, format='audio/wav')
+        pygame.mixer.music.load(alert_audio_file)
+        pygame.mixer.music.play()
 
 # Xử lý video từ nguồn
 if video_source == "Upload File":
@@ -126,9 +127,13 @@ if cap is not None and start_button:
 
         # Kiểm tra vật thể thiếu và tính thời gian mất
         current_time = time()
+        overlay_text = []
         for obj in object_names:
             required_count = monitor_counts.get(obj, 0)
             current_count = detected_objects.get(obj, 0)
+
+            # Hiển thị số lượng trên video
+            overlay_text.append(f"{current_count}/{required_count} {obj}")
 
             if current_count < required_count:  # Đối tượng bị mất
                 if obj not in lost_objects_time:
@@ -147,6 +152,10 @@ if cap is not None and start_button:
                 # Nếu đối tượng không bị mất, xóa trạng thái trong từ điển
                 if obj in lost_objects_time:
                     del lost_objects_time[obj]
+
+        # Vẽ thông tin lên video
+        for i, text in enumerate(overlay_text):
+            cv2.putText(frame, text, (10, 30 + i * 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
