@@ -138,6 +138,7 @@ if cap is not None and start_button:
         for obj in object_names:
             current_count = detected_objects.get(obj, 0)
 
+            # Chỉ tính thời gian mất khi vật thể đã xuất hiện ít nhất một lần
             if current_count == 0:  # Đối tượng không xuất hiện trong khung hình
                 if obj not in lost_objects_time:
                     lost_objects_time[obj] = time()  # Lưu thời gian mất đối tượng lần đầu
