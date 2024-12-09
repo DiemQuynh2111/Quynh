@@ -4,7 +4,6 @@ import streamlit as st
 import os
 from time import time
 from datetime import timedelta
-import pygame  # Thư viện để phát âm thanh
 
 # Tải YOLO weights và config nếu chưa có
 weights_file = "yolov3.weights"
@@ -47,14 +46,6 @@ start_button = st.button("Start Detection")
 stop_button = st.button("Stop and Delete Video")
 
 cap = None  # Biến để lưu nguồn video
-
-# Khởi tạo pygame để phát âm thanh
-pygame.init()
-def play_alert_sound():
-    alert_audio_file = 'police.wav'  # Đường dẫn đến file âm thanh cảnh báo
-    if os.path.exists(alert_audio_file):
-        pygame.mixer.music.load(alert_audio_file)
-        pygame.mixer.music.play()
 
 # Xử lý video từ nguồn
 if video_source == "Upload File":
@@ -147,7 +138,7 @@ if cap is not None and start_button:
                     if obj not in alerted_objects and lost_duration >= frame_limit:
                         alerted_objects.add(obj)
                         st.warning(f"⚠️ ALERT: '{obj}' is missing for {lost_time_str}!")
-                        play_alert_sound()
+
             else:
                 # Nếu đối tượng không bị mất, xóa trạng thái trong từ điển
                 if obj in lost_objects_time:
