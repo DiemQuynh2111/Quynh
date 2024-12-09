@@ -136,13 +136,15 @@ if cap is not None and start_button:
             required_count = monitor_counts.get(obj, 0)
             current_count = detected_objects.get(obj, 0)
 
-            # Hiển thị số lượng vật thể mất
+            # Hiển thị thông báo chỉ 1 lần khi vật thể mất
             if current_count < required_count:  # Đối tượng bị mất
-                lost_count = required_count - current_count
-                st.warning(f"⚠️ {lost_count} '{obj}' is missing!")
+                if obj not in alerted_objects:  # Nếu chưa thông báo
+                    lost_count = required_count - current_count
+                    st.warning(f"⚠️ {lost_count} '{obj}' is missing!")
+                    alerted_objects.add(obj)  # Đánh dấu là đã thông báo
             else:  # Đối tượng quay lại
-                if obj in lost_objects_time:
-                    del lost_objects_time[obj]
+                if obj in alerted_objects:
+                    alerted_objects.remove(obj)
 
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
