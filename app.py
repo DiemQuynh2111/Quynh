@@ -40,11 +40,11 @@ st.sidebar.header("Settings")
 object_names_input = st.sidebar.text_input("Enter Object Names (comma separated)", "cell phone,laptop,umbrella")
 object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
 monitor_counts = {}
-missing_object_counter = {}  # Đếm số khung hình vật thể bị mất
+lost_objects_time = {}  # Thêm từ điển để theo dõi thời gian mất của từng đối tượng
 for obj in object_names:
     monitor_counts[obj] = st.sidebar.number_input(f"Enter number of {obj} to monitor", min_value=0, value=0, step=1)
 
-frame_limit = st.sidebar.slider("Set Frame Limit for Alarm (frames)", 1, 10, 3)
+frame_limit = st.sidebar.slider("Set Frame Limit for Alarm (seconds)", 1, 10, 3)
 
 # Chọn nguồn video
 video_source = st.radio("Choose Video Source", ["Upload File"])
@@ -77,7 +77,7 @@ if video_source == "Upload File":
 if cap is not None and start_button:
     stframe = st.empty()
     detected_objects = {}
-    missing_object_counter = {obj: 0 for obj in object_names}  # Đặt lại bộ đếm khi bắt đầu
+    lost_objects_time = {}
     alerted_objects = set()  # Để theo dõi các đối tượng đã cảnh báo
     start_time = time()
 
@@ -135,20 +135,27 @@ if cap is not None and start_button:
                     detected_objects[label] = 1
 
         # Kiểm tra vật thể thiếu và đã quay lại
+        current_time = time()
         for obj in object_names:
+            required_count = monitor_counts.get(obj, 0)
             current_count = detected_objects.get(obj, 0)
 
-            if current_count == 0:  # Đối tượng không xuất hiện trong khung hình
-                missing_object_counter[obj] += 1
-                if missing_object_counter[obj] >= frame_limit and obj not in alerted_objects:
-                    alerted_objects.add(obj)
-                    st.warning(f"⚠️ ALERT: '{obj}' is missing!")
-                    play_alert_sound()  # Phát âm thanh cảnh báo khi đối tượng bị mất
-            else:  # Đối tượng xuất hiện trở lại
-                if missing_object_counter[obj] > 0:
-                    missing_object_counter[obj] = 0  # Đặt lại bộ đếm khi vật thể xuất hiện
-                if obj in alerted_objects:
-                    alerted_objects.remove(obj)  # Xóa cảnh báo khi đối tượng quay lại
+            if current_count < required_count:  # Đối tượng bị mất
+                if obj not in lost_objects_time:
+                    lost_objects_time[obj] = current_time
+                else:
+                    lost_duration = current_time - lost_objects_time[obj]
+                    lost_time_str = str(timedelta(seconds=int(lost_duration)))
+
+                    if obj not in alerted_objects and lost_duration >= frame_limit:
+                        alerted_objects.add(obj)
+                        st.warning(f"⚠️ ALERT: '{obj}' is missing for {lost_time_str}!")
+                        play_alert_sound()  # Phát âm thanh cảnh báo khi đối tượng bị mất
+            else:  # Đối tượng quay lại
+                if obj in lost_objects_time:  # Vật thể quay lại sau khi mất
+                    del lost_objects_time[obj]  # Xóa thời gian mất
+                if obj in alerted_objects:  # Xóa cảnh báo đã thông báo trước đó
+                    alerted_objects.remove(obj)
 
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
