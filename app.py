@@ -55,13 +55,6 @@ stop_button = st.button("Stop and Delete Video")
 
 cap = None  # Biến để lưu nguồn video
 
-# Âm thanh cảnh báo trực tiếp (sử dụng Streamlit)
-alarm_audio = """
-    <audio autoplay>
-        <source src="https://www.soundjay.com/button/beep-07.wav" type="audio/wav">
-    </audio>
-"""
-
 # Thêm Non-Maximum Suppression (NMS) để loại bỏ các bounding boxes chồng lấn
 def apply_nms(boxes, confidences, threshold=0.4):
     indices = cv2.dnn.NMSBoxes(boxes, confidences, score_threshold=0.5, nms_threshold=threshold)
@@ -136,17 +129,20 @@ if cap is not None and start_button:
             else:
                 detected_objects[label] += 1
 
-        # Kiểm tra vật thể mất
+        # Kiểm tra vật thể không khớp (không có đủ số lượng đã nhập)
         for obj in object_names:
-            if obj not in detected_objects or detected_objects[obj] == 0:
-                if obj not in lost_objects_time or time() - lost_objects_time[obj] > 5:  # 5 giây không phát hiện lại
+            expected_count = monitor_counts[obj]
+            detected_count = detected_objects.get(obj, 0)
+            if detected_count != expected_count:
+                if obj not in lost_objects_time or time() - lost_objects_time[obj] > 5:  # Cập nhật lại mỗi 5 giây
                     if obj not in lost_objects:
-                        # Phát âm thanh cảnh báo khi vật thể mất
-                        st.warning(f"ALERT: {obj} not detected!")
-                        st.markdown(alarm_audio, unsafe_allow_html=True)  # Phát âm thanh khi vật thể mất
-                        lost_objects_time[obj] = time()  # Cập nhật lại thời gian mất vật thể
+                        current_time = time()
+                        elapsed_time = current_time - lost_objects_time[obj]
+                        elapsed_time_str = f"{int(elapsed_time // 3600)}:{int((elapsed_time % 3600) // 60)}:{int(elapsed_time % 60)}"
+                        st.warning(f"ALERT: {obj} detected {detected_count} times instead of {expected_count}.")
+                        st.write(f"Time of mismatch: {elapsed_time_str}")
+                        lost_objects_time[obj] = current_time  # Cập nhật thời gian khi không khớp
                         lost_objects.add(obj)  # Thêm vật thể vào danh sách đã mất
-                        st.write(f"Time lost: {time() - lost_objects_time[obj]:.2f} seconds")  # Hiển thị thời gian mất
 
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
