@@ -6,6 +6,5 @@ gdown
 av
 urllib3
 pytube
-yt-dlp==2024.01.06
-
+yt-dlp
 
