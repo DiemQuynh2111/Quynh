@@ -68,7 +68,6 @@ if video_source == "Upload File":
 if cap is not None and start_button:
     stframe = st.empty()
     detected_objects = {}
-    lost_objects_time = {}
     alerted_objects = set()
     start_time = time()
 
@@ -145,6 +144,11 @@ if cap is not None and start_button:
             else:  # Đối tượng quay lại
                 if obj in alerted_objects:
                     alerted_objects.remove(obj)
+
+            # Thêm thông tin số lượng vật thể lên video
+            label_text = f"{obj}: {current_count}/{required_count}"
+            cv2.putText(frame, label_text, (10, 30 + 30 * object_names.index(obj)), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
