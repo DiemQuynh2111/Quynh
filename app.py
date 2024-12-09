@@ -3,7 +3,8 @@ import numpy as np
 import streamlit as st
 import os
 import gdown
-import yt_dlp  # Sử dụng yt-dlp thay vì pytube
+import yt_dlp
+from time import time
 
 # Tải YOLO weights và config nếu chưa có
 weights_file = "yolov3.weights"
@@ -49,7 +50,11 @@ frame_limit = st.sidebar.slider("Set Frame Limit for Alarm", 1, 10, 3)
 video_source = st.radio("Choose Video Source", ["Upload File", "YouTube URL"])
 temp_video_path = "temp_video.mp4"
 
-# Tải video từ máy hoặc URL
+# Nút điều khiển
+start_button = st.button("Start Detection")
+stop_button = st.button("Stop and Delete Video")
+
+# Nếu video đã được tải lên
 if video_source == "Upload File":
     uploaded_file = st.file_uploader("Upload a video file", type=["mp4", "avi", "mov", "mkv"])
     if uploaded_file is not None:
@@ -59,80 +64,73 @@ if video_source == "Upload File":
 
 elif video_source == "YouTube URL":
     youtube_url = st.text_input("Paste YouTube URL here")
-    if youtube_url and st.button("Download Video"):
-        try:
-            ydl_opts = {
-                'format': 'bestvideo+bestaudio/best',  # Chọn chất lượng video và âm thanh tốt nhất
-                'outtmpl': temp_video_path,  # Đặt tên tệp video tải xuống
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([youtube_url])
-            st.success("YouTube video downloaded successfully!")
-        except Exception as e:
-            st.error(f"Error downloading YouTube video: {e}")
+    if youtube_url:
+        st.video(youtube_url)
 
-# Kiểm tra sự tồn tại của video
+# Kiểm tra nếu video đã được tải lên
 if os.path.exists(temp_video_path):
-    try:
-        # Hiển thị video mà không sử dụng 'use_container_width'
-        st.video(temp_video_path)
+    cap = cv2.VideoCapture(temp_video_path)
+    ret, frame = cap.read()
 
-        # Thêm nút điều khiển Start và Stop
-        col1, col2 = st.columns(2)
-        start_button = col1.button("Start")
-        stop_button = col2.button("Stop")
+    if start_button:
+        st.session_state.running = True
+        st.session_state.cap = cap
+        st.session_state.start_time = time()
 
-        if start_button:
-            st.session_state.running = True
-            st.session_state.cap = cv2.VideoCapture(temp_video_path)
+    if stop_button:
+        st.session_state.running = False
+        st.session_state.cap.release()
+        st.session_state.cap = None
+        os.remove(temp_video_path)
+        st.success("Video has been stopped and deleted.")
 
-            if not st.session_state.cap.isOpened():
-                st.error("Unable to open video file.")
-                st.session_state.running = False
-                st.session_state.cap.release()
+    if 'running' in st.session_state and st.session_state.running:
+        cap = st.session_state.cap
+        ret, frame = cap.read()
 
-        if stop_button:
+        if not ret:
+            st.warning("Video ended.")
             st.session_state.running = False
-            if 'cap' in st.session_state:
-                st.session_state.cap.release()
-                st.session_state.cap = None
+            cap.release()
 
-        # Xử lý video khi nút Start được nhấn
-        if 'running' in st.session_state and st.session_state.running:
-            cap = st.session_state.cap
-            ret, frame = cap.read()
+        # Xử lý phát hiện vật thể
+        blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+        net.setInput(blob)
+        outs = net.forward(get_output_layers(net))
 
-            if not ret:
-                st.warning("Video ended.")
-                st.session_state.running = False
-                cap.release()
+        height, width, _ = frame.shape
+        detected_objects = {}
 
-            # Xử lý phát hiện vật thể
-            blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
-            net.setInput(blob)
-            outs = net.forward(get_output_layers(net))
+        for out in outs:
+            for detection in out:
+                scores = detection[5:]
+                class_id = np.argmax(scores)
+                confidence = scores[class_id]
+                if confidence > 0.5 and classes[class_id] in object_names:
+                    label = str(classes[class_id])
+                    color = COLORS[class_id]
+                    center_x = int(detection[0] * width)
+                    center_y = int(detection[1] * height)
+                    w = int(detection[2] * width)
+                    h = int(detection[3] * height)
+                    x = center_x - w // 2
+                    y = center_y - h // 2
+                    cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+                    cv2.putText(frame, label, (x - 10, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-            height, width, _ = frame.shape
-            for out in outs:
-                for detection in out:
-                    scores = detection[5:]
-                    class_id = np.argmax(scores)
-                    confidence = scores[class_id]
-                    if confidence > 0.5 and classes[class_id] in object_names:
-                        label = str(classes[class_id])
-                        color = COLORS[class_id]
-                        center_x = int(detection[0] * width)
-                        center_y = int(detection[1] * height)
-                        w = int(detection[2] * width)
-                        h = int(detection[3] * height)
-                        x = center_x - w // 2
-                        y = center_y - h // 2
-                        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-                        cv2.putText(frame, label, (x - 10, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+                    if label not in detected_objects:
+                        detected_objects[label] = {'count': 1, 'time': time() - st.session_state.start_time}
+                    else:
+                        detected_objects[label]['count'] += 1
+                        detected_objects[label]['time'] = time() - st.session_state.start_time
 
-            st.image(frame, channels="BGR", use_container_width=True)
+        # Hiển thị video đã xử lý
+        st.image(frame, channels="BGR", use_container_width=True)
 
-    except Exception as e:
-        st.error(f"Error displaying video: {e}")
+        # Cảnh báo khi vượt qua giới hạn
+        for obj, info in detected_objects.items():
+            if monitor_counts.get(obj, 0) > 0 and info['count'] >= monitor_counts[obj]:
+                st.warning(f"ALERT: {obj} detected for {info['time']} seconds!")
+
 else:
     st.info("Please upload a video or provide a YouTube URL.")
