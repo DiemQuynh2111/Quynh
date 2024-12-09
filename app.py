@@ -6,6 +6,7 @@ import gdown
 from time import time
 import io
 from datetime import timedelta
+import winsound
 
 # Tải YOLO weights và config nếu chưa có
 weights_file = "yolov3.weights"
@@ -56,12 +57,11 @@ stop_button = st.button("Stop and Delete Video")
 
 cap = None  # Biến để lưu nguồn video
 
-# Âm thanh cảnh báo trực tiếp (sử dụng Streamlit)
-alarm_audio = """
-    <audio autoplay>
-        <source src="https://www.soundjay.com/button/beep-07.wav" type="audio/wav">
-    </audio>
-"""
+# Âm thanh cảnh báo
+def play_alert_sound():
+    frequency = 2500  # tần số âm thanh (Hz)
+    duration = 1000  # thời gian phát âm thanh (ms)
+    winsound.Beep(frequency, duration)  # phát âm thanh cảnh báo
 
 # Xử lý video từ nguồn
 if video_source == "Upload File":
@@ -140,6 +140,7 @@ if cap is not None and start_button:
                     lost_time_seconds = time() - lost_objects_time.get(obj, time())
                     lost_time = str(timedelta(seconds=int(lost_time_seconds)))  # Chuyển đổi sang giờ:phút:giây
                     st.warning(f"ALERT: {obj} is missing! Time lost: {lost_time}")
+                    play_alert_sound()  # Phát âm thanh cảnh báo
                     
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
