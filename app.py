@@ -133,9 +133,12 @@ if cap is not None and start_button:
                 else:
                     detected_objects[label] += 1
 
-        # Kiểm tra vật thể thiếu
+        # Kiểm tra vật thể thiếu và phát âm thanh cảnh báo
         for obj in object_names:
-            if obj not in detected_objects or detected_objects[obj] < monitor_counts.get(obj, 0):
+            expected_count = monitor_counts.get(obj, 0)
+            detected_count = detected_objects.get(obj, 0)
+
+            if detected_count < expected_count:  # Nếu số lượng vật thể ít hơn số lượng yêu cầu
                 if obj not in lost_objects_time:
                     lost_objects_time[obj] = time()  # Ghi nhận thời gian mất khi lần đầu không thấy đối tượng
                 else:
@@ -149,7 +152,7 @@ if cap is not None and start_button:
                         alerted_objects.add(obj)
                         st.warning(f"ALERT: {obj} is missing! Time lost: {lost_time}")
                         play_alert_sound()  # Phát âm thanh cảnh báo
-                        
+
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
 
