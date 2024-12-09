@@ -100,11 +100,11 @@ if cap is not None and start_button:
 
         height, width, _ = frame.shape
         boxes = []
-               class_ids = []
+        class_ids = []
         confidences = []
         detected_objects.clear()
 
-        # Lấy thông tin từ các lớp đầu ra
+          # Lấy thông tin từ các lớp đầu ra
         for out in outs:
             for detection in out:
                 scores = detection[5:]
