@@ -2,19 +2,20 @@ import cv2
 import numpy as np
 import streamlit as st
 import os
-import time
+import gdown
+import yt_dlp
+from time import time
 
-# Cài đặt YOLO weights và config nếu chưa có
+# Tải YOLO weights và config nếu chưa có
 weights_file = "yolov3.weights"
 config_file = "yolov3.cfg"
 classes_file = "yolov3.txt"
 
 if not os.path.exists(weights_file):
-    st.error("Weights file not found!")
-    st.stop()
+    gdown.download("https://drive.google.com/uc?id=11rE4um7BB12mtsgiq-D774qprMaRhjpm", weights_file, quiet=False)
 
 if not os.path.exists(config_file) or not os.path.exists(classes_file):
-    st.error("Config or classes file not found!")
+    st.error("Missing YOLO config or classes file.")
     st.stop()
 
 # Đọc danh sách các lớp
@@ -25,96 +26,112 @@ COLORS = np.random.uniform(0, 255, size=(len(classes), 3))
 # Tải mô hình YOLO
 net = cv2.dnn.readNet(weights_file, config_file)
 
-# Hàm lấy tên các layer
+# Hàm lấy layer đầu ra
 def get_output_layers(net):
     layer_names = net.getLayerNames()
     return [layer_names[i - 1] for i in net.getUnconnectedOutLayers()]
 
 # Giao diện Streamlit
-st.title("Object Detection and Loss Tracking")
+st.title("Object Detection with YOLO")
 
-# Thanh bên
-object_names_input = st.sidebar.text_input("Enter Object Names (comma separated)", "cell phone,laptop")
+# Thanh bên trái để nhập thông tin
+st.sidebar.header("Settings")
+object_names_input = st.sidebar.text_input("Enter Object Names (comma separated)", "cell phone,laptop,umbrella")
 object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
+
+# Thanh nhập số lượng vật thể để giám sát
+monitor_counts = {}
+for obj in object_names:
+    monitor_counts[obj] = st.sidebar.number_input(f"Enter number of {obj} to monitor", min_value=0, value=0, step=1)
+
 frame_limit = st.sidebar.slider("Set Frame Limit for Alarm", 1, 10, 3)
 
-video_source = st.radio("Choose Video Source", ["Upload File", "Webcam"])
+# Chọn nguồn video
+video_source = st.radio("Choose Video Source", ["Upload File", "YouTube URL", "Custom Video URL (RTSP/Webcam)"])
 temp_video_path = "temp_video.mp4"
 
-# Phát hiện vật thể bị mất
-object_loss_times = {}
+# Nút điều khiển
+start_button = st.button("Start Detection")
+stop_button = st.button("Stop and Delete Video")
 
+cap = None  # Biến để lưu nguồn video
+
+# Xử lý video từ nguồn
 if video_source == "Upload File":
     uploaded_file = st.file_uploader("Upload a video file", type=["mp4", "avi", "mov", "mkv"])
     if uploaded_file is not None:
         with open(temp_video_path, "wb") as f:
             f.write(uploaded_file.read())
         st.success("Video uploaded successfully!")
-        video_path = temp_video_path
-    else:
-        video_path = None
+        cap = cv2.VideoCapture(temp_video_path)
 
-elif video_source == "Webcam":
-    video_path = 0  # Mở webcam
+elif video_source == "YouTube URL":
+    youtube_url = st.text_input("Paste YouTube URL here")
+    if youtube_url and start_button:
+        ydl_opts = {'outtmpl': temp_video_path, 'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]'}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([youtube_url])
+        st.success("YouTube video downloaded!")
+        cap = cv2.VideoCapture(temp_video_path)
 
-start_button = st.button("Start Detection")
+elif video_source == "Custom Video URL (RTSP/Webcam)":
+    video_url = st.text_input("Enter RTSP/Webcam URL")
+    if video_url:
+        cap = cv2.VideoCapture(video_url)
 
-if start_button and video_path is not None:
-    cap = cv2.VideoCapture(video_path)
+# Kiểm tra nếu có video để xử lý
+if cap is not None and start_button:
     stframe = st.empty()
+    detected_objects = {}
 
-    start_time = time.time()
-    detected_objects = set()
-
-    while cap.isOpened():
+    while True:
         ret, frame = cap.read()
         if not ret:
             st.warning("Video ended or no frames available.")
             break
 
-        height, width, _ = frame.shape
+        # Phát hiện vật thể
         blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
         net.setInput(blob)
         outs = net.forward(get_output_layers(net))
 
-        current_objects = set()
+        height, width, _ = frame.shape
         for out in outs:
             for detection in out:
                 scores = detection[5:]
                 class_id = np.argmax(scores)
                 confidence = scores[class_id]
                 if confidence > 0.5:
-                    label = str(classes[class_id])
-                    if label.lower() in object_names:
+                    label = classes[class_id].lower()
+                    if label in object_names:
                         center_x = int(detection[0] * width)
                         center_y = int(detection[1] * height)
                         w = int(detection[2] * width)
                         h = int(detection[3] * height)
                         x = center_x - w // 2
                         y = center_y - h // 2
-
                         color = COLORS[class_id]
+
+                        # Vẽ khung và nhãn
                         cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
                         cv2.putText(frame, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-                        current_objects.add(label.lower())
 
-        # Phát hiện vật thể bị mất
-        for obj in detected_objects - current_objects:
-            if obj not in object_loss_times:
-                object_loss_times[obj] = time.time() - start_time
+                        # Đếm và theo dõi
+                        if label not in detected_objects:
+                            detected_objects[label] = 1
+                        else:
+                            detected_objects[label] += 1
 
-        detected_objects = current_objects
+                        # Cảnh báo
+                        if detected_objects[label] > monitor_counts[label]:
+                            st.warning(f"ALERT: {label} detected more than {monitor_counts[label]} times!")
 
-        # Hiển thị khung hình
+        # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
 
-    cap.release()
-
-    # Kết quả cuối cùng
-    st.subheader("Object Loss Report")
-    for obj, loss_time in object_loss_times.items():
-        st.write(f"Object '{obj}' was lost at {loss_time:.2f} seconds.")
-
-else:
-    if video_path is None:
-        st.info("Please upload a video file or select Webcam.")
+if stop_button:
+    if cap:
+        cap.release()
+    if os.path.exists(temp_video_path):
+        os.remove(temp_video_path)
+    st.success("Video stopped and temporary file deleted.")
