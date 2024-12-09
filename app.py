@@ -3,8 +3,7 @@ import numpy as np
 import streamlit as st
 import os
 import gdown
-from pytube import YouTube
-import yt_dlp
+import yt_dlp  # Sử dụng yt-dlp thay vì pytube
 
 # Tải YOLO weights và config nếu chưa có
 weights_file = "yolov3.weights"
@@ -62,13 +61,13 @@ elif video_source == "YouTube URL":
     youtube_url = st.text_input("Paste YouTube URL here")
     if youtube_url and st.button("Download Video"):
         try:
-            yt = YouTube(youtube_url)
-            stream = yt.streams.filter(file_extension="mp4", res="360p").first()
-            if stream is not None:
-                stream.download(filename=temp_video_path)
-                st.success("YouTube video downloaded successfully!")
-            else:
-                st.error("Could not find a suitable stream for the video.")
+            ydl_opts = {
+                'format': 'bestvideo+bestaudio/best',  # Chọn chất lượng video và âm thanh tốt nhất
+                'outtmpl': temp_video_path,  # Đặt tên tệp video tải xuống
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([youtube_url])
+            st.success("YouTube video downloaded successfully!")
         except Exception as e:
             st.error(f"Error downloading YouTube video: {e}")
 
