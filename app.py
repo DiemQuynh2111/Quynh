@@ -41,7 +41,6 @@ st.sidebar.header("Settings")
 object_names_input = st.sidebar.text_input("Enter Object Names (comma separated)", "cell phone,laptop,umbrella")
 object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
 monitor_counts = {}
-missing_object_counter = {}  # Đếm số khung hình vật thể bị mất
 for obj in object_names:
     monitor_counts[obj] = st.sidebar.number_input(f"Enter number of {obj} to monitor", min_value=0, value=0, step=1)
 
@@ -78,12 +77,9 @@ if video_source == "Upload File":
 if cap is not None and start_button:
     stframe = st.empty()
     detected_objects = {}
-    missing_object_counter = {obj: 0 for obj in object_names}  # Đặt lại bộ đếm khi bắt đầu
     lost_objects_time = {}  # Thêm từ điển để theo dõi thời gian mất của từng đối tượng
     alerted_objects = set()  # Để theo dõi các đối tượng đã cảnh báo
     appeared_objects = set()  # Để theo dõi những vật thể đã xuất hiện ít nhất một lần
-    start_time = time()
-    frame_skip = 2  # Bỏ qua mỗi 2 khung hình
     frame_counter = 0
 
     while True:
@@ -93,14 +89,12 @@ if cap is not None and start_button:
             break
 
         # Bỏ qua một số khung hình để tăng tốc độ
-        if frame_counter % frame_skip != 0:
+        if frame_counter % 2 != 0:
             frame_counter += 1
             continue
 
-        frame_resized = cv2.resize(frame, (416, 416))  # Giảm độ phân giải của frame
-
         # Phát hiện vật thể
-        blob = cv2.dnn.blobFromImage(frame_resized, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+        blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
         net.setInput(blob)
         outs = net.forward(get_output_layers(net))
 
@@ -152,9 +146,9 @@ if cap is not None and start_button:
             current_count = detected_objects.get(obj, 0)
 
             if current_count == 0:  # Đối tượng không xuất hiện trong khung hình
-                if obj not in lost_objects_time:
+                if obj not in lost_objects_time and obj in appeared_objects:
                     lost_objects_time[obj] = time()  # Lưu thời gian mất đối tượng lần đầu
-                else:
+                elif obj in lost_objects_time:
                     lost_duration = time() - lost_objects_time[obj]
                     lost_time_str = str(timedelta(seconds=int(lost_duration)))
 
@@ -166,16 +160,4 @@ if cap is not None and start_button:
             else:  # Đối tượng xuất hiện trở lại
                 if obj in lost_objects_time:  # Vật thể quay lại sau khi mất
                     del lost_objects_time[obj]  # Xóa thời gian mất
-                if obj in alerted_objects:  # Xóa cảnh báo đã thông báo trước đó
-                    alerted_objects.remove(obj)
-
-        # Hiển thị video
-        stframe.image(frame, channels="BGR", use_container_width=True)
-        frame_counter += 1
-
-if stop_button:
-    if cap:
-        cap.release()
-    if os.path.exists(temp_video_path):
-        os.remove(temp_video_path)
-    st.success("Video stopped and temporary file deleted.")
+                if obj in alerted_o
