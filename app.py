@@ -71,63 +71,68 @@ elif video_source == "YouTube URL":
         except Exception as e:
             st.error(f"Error downloading YouTube video: {e}")
 
+# Kiểm tra sự tồn tại của video
 if os.path.exists(temp_video_path):
-    st.video(temp_video_path, format="video/mp4", use_container_width=True)
+    try:
+        st.video(temp_video_path, format="video/mp4", use_container_width=True)
 
-    # Thêm nút điều khiển Start và Stop
-    col1, col2 = st.columns(2)
-    start_button = col1.button("Start")
-    stop_button = col2.button("Stop")
+        # Thêm nút điều khiển Start và Stop
+        col1, col2 = st.columns(2)
+        start_button = col1.button("Start")
+        stop_button = col2.button("Stop")
 
-    if start_button:
-        st.session_state.running = True
-        st.session_state.cap = cv2.VideoCapture(temp_video_path)
+        if start_button:
+            st.session_state.running = True
+            st.session_state.cap = cv2.VideoCapture(temp_video_path)
 
-        if not st.session_state.cap.isOpened():
-            st.error("Unable to open video file.")
+            if not st.session_state.cap.isOpened():
+                st.error("Unable to open video file.")
+                st.session_state.running = False
+                st.session_state.cap.release()
+
+        if stop_button:
             st.session_state.running = False
-            st.session_state.cap.release()
+            if 'cap' in st.session_state:
+                st.session_state.cap.release()
+                st.session_state.cap = None
 
-    if stop_button:
-        st.session_state.running = False
-        if 'cap' in st.session_state:
-            st.session_state.cap.release()
-            st.session_state.cap = None
+        # Xử lý video khi nút Start được nhấn
+        if 'running' in st.session_state and st.session_state.running:
+            cap = st.session_state.cap
+            ret, frame = cap.read()
 
-    # Xử lý video khi nút Start được nhấn
-    if 'running' in st.session_state and st.session_state.running:
-        cap = st.session_state.cap
-        ret, frame = cap.read()
+            if not ret:
+                st.warning("Video ended.")
+                st.session_state.running = False
+                cap.release()
 
-        if not ret:
-            st.warning("Video ended.")
-            st.session_state.running = False
-            cap.release()
+            # Xử lý phát hiện vật thể
+            blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+            net.setInput(blob)
+            outs = net.forward(get_output_layers(net))
 
-        # Xử lý phát hiện vật thể
-        blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
-        net.setInput(blob)
-        outs = net.forward(get_output_layers(net))
+            height, width, _ = frame.shape
+            for out in outs:
+                for detection in out:
+                    scores = detection[5:]
+                    class_id = np.argmax(scores)
+                    confidence = scores[class_id]
+                    if confidence > 0.5 and classes[class_id] in object_names:
+                        label = str(classes[class_id])
+                        color = COLORS[class_id]
+                        center_x = int(detection[0] * width)
+                        center_y = int(detection[1] * height)
+                        w = int(detection[2] * width)
+                        h = int(detection[3] * height)
+                        x = center_x - w // 2
+                        y = center_y - h // 2
+                        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+                        cv2.putText(frame, label, (x - 10, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-        height, width, _ = frame.shape
-        for out in outs:
-            for detection in out:
-                scores = detection[5:]
-                class_id = np.argmax(scores)
-                confidence = scores[class_id]
-                if confidence > 0.5 and classes[class_id] in object_names:
-                    label = str(classes[class_id])
-                    color = COLORS[class_id]
-                    center_x = int(detection[0] * width)
-                    center_y = int(detection[1] * height)
-                    w = int(detection[2] * width)
-                    h = int(detection[3] * height)
-                    x = center_x - w // 2
-                    y = center_y - h // 2
-                    cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-                    cv2.putText(frame, label, (x - 10, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            st.image(frame, channels="BGR", use_container_width=True)
 
-        st.image(frame, channels="BGR", use_container_width=True)
-
+    except Exception as e:
+        st.error(f"Error displaying video: {e}")
 else:
     st.info("Please upload a video or provide a YouTube URL.")
+
