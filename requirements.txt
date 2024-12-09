@@ -8,4 +8,3 @@ urllib3
 pytube
 yt-dlp
 pygame
-playsound
