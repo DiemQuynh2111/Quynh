@@ -63,6 +63,9 @@ if cap is not None and start_button:
     lost_objects_time = {}  # Lưu thời điểm bắt đầu mất đối tượng
     alerted_objects = set()  # Để theo dõi các đối tượng đã cảnh báo
 
+    # Lấy FPS của video
+    fps = cap.get(cv2.CAP_PROP_FPS)
+
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -117,7 +120,6 @@ if cap is not None and start_button:
                     detected_objects[label] = 1
 
         # Kiểm tra vật thể thiếu và tính thời gian mất
-        current_time = time()
         overlay_text = []
         for obj in object_names:
             required_count = monitor_counts.get(obj, 0)
@@ -128,25 +130,19 @@ if cap is not None and start_button:
 
             if current_count < required_count:  # Đối tượng bị mất
                 if obj not in lost_objects_time:
-                    # Đối tượng bắt đầu mất, lưu thời gian bắt đầu mất
-                    lost_objects_time[obj] = current_time
+                    # Đối tượng bắt đầu mất, lưu số khung hình và thời gian bắt đầu mất
+                    lost_objects_time[obj] = cap.get(cv2.CAP_PROP_POS_FRAMES)
                 else:
-                    # Đối tượng vẫn đang mất, tính thời gian mất
-                    lost_duration = current_time - lost_objects_time[obj]
-                    lost_time_str = str(timedelta(seconds=int(lost_duration)))
+                    # Đối tượng vẫn đang mất, tính thời gian mất dựa trên số khung hình
+                    lost_frame_count = cap.get(cv2.CAP_PROP_POS_FRAMES) - lost_objects_time[obj]
+                    lost_time_str = str(timedelta(seconds=int(lost_frame_count / fps)))
 
-                    if lost_duration >= frame_limit:
+                    if lost_frame_count / fps >= frame_limit:
                         st.warning(f"⚠️ ALERT: '{obj}' is missing for {lost_time_str}!")
             else:
-                # Nếu đối tượng không bị mất, xóa trạng thái trong từ điển và hiển thị 00:00:00 nếu không có đối tượng
+                # Nếu đối tượng không bị mất, xóa trạng thái trong từ điển
                 if obj in lost_objects_time:
                     del lost_objects_time[obj]
-                
-                if current_count == 0:  # Nếu đối tượng không xuất hiện
-                    overlay_text.append(f"00:00:00 {obj}")
-                else:
-                    # Nếu đối tượng có mặt, vẫn hiển thị số lượng
-                    overlay_text.append(f"{current_count}/{required_count} {obj}")
 
         # Vẽ thông tin lên video
         for i, text in enumerate(overlay_text):
