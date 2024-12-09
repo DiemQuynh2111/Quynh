@@ -4,7 +4,7 @@ import streamlit as st
 import os
 import gdown
 from time import time
-import io
+import datetime
 
 # Tải YOLO weights và config nếu chưa có
 weights_file = "yolov3.weights"
@@ -40,6 +40,7 @@ object_names_input = st.sidebar.text_input("Enter Object Names (comma separated)
 object_names = [obj.strip().lower() for obj in object_names_input.split(',')]
 monitor_counts = {}
 lost_objects_time = {}
+alert_flags = {}  # Cờ theo dõi trạng thái cảnh báo cho mỗi vật thể
 for obj in object_names:
     monitor_counts[obj] = st.sidebar.number_input(f"Enter number of {obj} to monitor", min_value=0, value=0, step=1)
 
@@ -112,12 +113,14 @@ if cap is not None and start_button:
                         if label not in detected_objects:
                             detected_objects[label] = 1
                             lost_objects_time[label] = time()  # Lưu thời gian khi vật thể xuất hiện
+                            alert_flags[label] = False  # Chưa cảnh báo
                         else:
                             detected_objects[label] += 1
 
                         # Cảnh báo
-                        if detected_objects[label] > monitor_counts[label]:
+                        if detected_objects[label] > monitor_counts[label] and not alert_flags[label]:
                             st.warning(f"ALERT: {label} detected more than {monitor_counts[label]} times!")
+                            alert_flags[label] = True  # Đánh dấu đã cảnh báo
 
         # Kiểm tra vật thể mất
         for obj in object_names:
@@ -126,10 +129,16 @@ if cap is not None and start_button:
                 if obj not in lost_objects_time:  # Kiểm tra xem vật thể có trong lost_objects_time chưa
                     lost_objects_time[obj] = 0  # Nếu chưa có, khởi tạo thời gian mất là 0
                 if time() - lost_objects_time[obj] > 5:  # 5 giây không phát hiện lại
-                    st.warning(f"ALERT: {obj} not detected!")
-                    st.markdown(alarm_audio, unsafe_allow_html=True)  # Phát âm thanh khi vật thể mất
-                    lost_objects_time[obj] = time()  # Cập nhật lại thời gian mất vật thể
-                    st.write(f"Time lost: {time() - lost_objects_time[obj]:.2f} seconds")  # Hiển thị thời gian mất
+                    # Cảnh báo chỉ một lần
+                    if not alert_flags.get(obj, False):
+                        st.warning(f"ALERT: {obj} not detected!")
+                        st.markdown(alarm_audio, unsafe_allow_html=True)  # Phát âm thanh khi vật thể mất
+                        alert_flags[obj] = True  # Đánh dấu đã cảnh báo
+
+                    # Tính thời gian mất và hiển thị giờ, phút, giây
+                    time_lost = time() - lost_objects_time[obj]
+                    formatted_time = str(datetime.timedelta(seconds=int(time_lost)))
+                    st.write(f"Time lost: {formatted_time}")  # Hiển thị thời gian mất
 
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
