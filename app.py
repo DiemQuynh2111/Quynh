@@ -4,6 +4,7 @@ import streamlit as st
 import os
 import gdown
 from time import time
+import io
 from datetime import timedelta
 
 # Tải YOLO weights và config nếu chưa có
@@ -55,11 +56,18 @@ stop_button = st.button("Stop and Delete Video")
 
 cap = None  # Biến để lưu nguồn video
 
-# Đọc file âm thanh cảnh báo (police.wav)
+# Tải file âm thanh cảnh báo từ Google Drive nếu chưa có
+audio_file_url = "https://drive.google.com/uc?id=19tOeyYVLZKHD9ETU4HHecHNYwoIa4sWq"  # ID từ Google Drive
+audio_file_path = "/mnt/data/police.wav"
+
+# Tải file âm thanh nếu chưa có
+if not os.path.exists(audio_file_path):
+    gdown.download(audio_file_url, audio_file_path, quiet=False)
+
+# Phát âm thanh cảnh báo
 def play_alert_sound():
-    alert_audio_file = "police.wav"  # Đường dẫn đến file âm thanh police.wav
-    if os.path.exists(alert_audio_file):
-        with open(alert_audio_file, 'rb') as f:
+    if os.path.exists(audio_file_path):
+        with open(audio_file_path, 'rb') as f:
             audio_bytes = f.read()
             st.audio(audio_bytes, format='audio/wav')
 
@@ -77,7 +85,6 @@ if cap is not None and start_button:
     stframe = st.empty()
     detected_objects = {}
     missing_object_counter = {obj: 0 for obj in object_names}  # Đặt lại bộ đếm khi bắt đầu
-    lost_objects_time = {}  # Thêm từ điển để theo dõi thời gian mất của từng đối tượng
     alerted_objects = set()  # Để theo dõi các đối tượng đã cảnh báo
     start_time = time()
 
@@ -139,21 +146,16 @@ if cap is not None and start_button:
             current_count = detected_objects.get(obj, 0)
 
             if current_count == 0:  # Đối tượng không xuất hiện trong khung hình
-                if obj not in lost_objects_time:
-                    lost_objects_time[obj] = time()  # Lưu thời gian mất đối tượng lần đầu
-                else:
-                    lost_duration = time() - lost_objects_time[obj]
-                    lost_time_str = str(timedelta(seconds=int(lost_duration)))
-
-                    if obj not in alerted_objects and lost_duration >= frame_limit:
-                        alerted_objects.add(obj)
-                        st.warning(f"⚠️ ALERT: '{obj}' is missing for {lost_time_str}!")
-                        play_alert_sound()  # Phát âm thanh cảnh báo khi đối tượng bị mất
+                missing_object_counter[obj] += 1
+                if missing_object_counter[obj] >= frame_limit and obj not in alerted_objects:
+                    alerted_objects.add(obj)
+                    st.warning(f"⚠️ ALERT: '{obj}' is missing!")
+                    play_alert_sound()  # Phát âm thanh cảnh báo khi đối tượng bị mất
             else:  # Đối tượng xuất hiện trở lại
-                if obj in lost_objects_time:  # Vật thể quay lại sau khi mất
-                    del lost_objects_time[obj]  # Xóa thời gian mất
-                if obj in alerted_objects:  # Xóa cảnh báo đã thông báo trước đó
-                    alerted_objects.remove(obj)
+                if missing_object_counter[obj] > 0:
+                    missing_object_counter[obj] = 0  # Đặt lại bộ đếm khi vật thể xuất hiện
+                if obj in alerted_objects:
+                    alerted_objects.remove(obj)  # Xóa cảnh báo khi đối tượng quay lại
 
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
