@@ -50,24 +50,15 @@ frame_limit = st.sidebar.slider("Set Frame Limit for Alarm", 1, 10, 3)
 video_source = st.radio("Choose Video Source", ["Upload File", "YouTube URL"])
 temp_video_path = "temp_video.mp4"
 
-if "clear" not in st.session_state:
-    st.session_state.clear = False
-
-# Nút Clear để làm mới dữ liệu
-if st.button("Clear"):
-    st.session_state.clear = True
-    if os.path.exists(temp_video_path):
-        os.remove(temp_video_path)
-
 # Tải video từ máy hoặc URL
-if video_source == "Upload File" and not st.session_state.clear:
+if video_source == "Upload File":
     uploaded_file = st.file_uploader("Upload a video file", type=["mp4", "avi", "mov", "mkv"])
     if uploaded_file is not None:
         with open(temp_video_path, "wb") as f:
             f.write(uploaded_file.read())
         st.success("Video uploaded successfully!")
 
-elif video_source == "YouTube URL" and not st.session_state.clear:
+elif video_source == "YouTube URL":
     youtube_url = st.text_input("Paste YouTube URL here")
     if youtube_url and st.button("Download Video"):
         try:
@@ -81,7 +72,7 @@ elif video_source == "YouTube URL" and not st.session_state.clear:
         except Exception as e:
             st.error(f"Error downloading YouTube video: {e}")
 
-if os.path.exists(temp_video_path) and not st.session_state.clear:
+if os.path.exists(temp_video_path):
     st.video(temp_video_path, format="video/mp4", use_container_width=True)
 
     # Thêm nút điều khiển Start và Stop
@@ -92,7 +83,7 @@ if os.path.exists(temp_video_path) and not st.session_state.clear:
     if start_button:
         st.session_state.running = True
         st.session_state.cap = cv2.VideoCapture(temp_video_path)
-        
+
         if not st.session_state.cap.isOpened():
             st.error("Unable to open video file.")
             st.session_state.running = False
