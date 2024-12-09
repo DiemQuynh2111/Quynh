@@ -6,3 +6,4 @@ gdown
 av
 urllib3
 pytube
+yt-dlp
