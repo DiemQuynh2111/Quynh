@@ -71,6 +71,7 @@ elif video_source == "YouTube URL":
         except Exception as e:
             st.error(f"Error downloading YouTube video: {e}")
 
+# Kiểm tra xem video đã tồn tại và có thể phát được không
 if os.path.exists(temp_video_path):
     st.video(temp_video_path, format="video/mp4", use_container_width=True)
 
