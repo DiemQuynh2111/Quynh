@@ -135,10 +135,8 @@ if cap is not None and start_button:
                     lost_duration = current_time - lost_objects_time[obj]
                     lost_time_str = str(timedelta(seconds=int(lost_duration)))
 
-                    if obj not in alerted_objects and lost_duration >= frame_limit:
-                        alerted_objects.add(obj)
+                    if lost_duration >= frame_limit:
                         st.warning(f"⚠️ ALERT: '{obj}' is missing for {lost_time_str}!")
-
             else:
                 # Nếu đối tượng không bị mất, xóa trạng thái trong từ điển
                 if obj in lost_objects_time:
