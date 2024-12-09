@@ -85,7 +85,7 @@ if cap is not None and start_button:
         ret, frame = cap.read()
         if not ret:
             st.warning("Video ended or no frames available.")
-            break
+            break  # Dừng vòng lặp khi không còn frame để xử lý
 
         # Phát hiện vật thể
         blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
@@ -141,6 +141,10 @@ if cap is not None and start_button:
                 else:
                     lost_time_seconds = time() - lost_objects_time[obj]  # Tính thời gian mất từ lần đầu không thấy
                     lost_time = str(timedelta(seconds=int(lost_time_seconds)))  # Chuyển đổi sang giờ:phút:giây
+                    
+                    # Log để kiểm tra thời gian mất
+                    st.write(f"{obj} lost for: {lost_time_seconds} seconds")
+                    
                     if obj not in alerted_objects:
                         alerted_objects.add(obj)
                         st.warning(f"ALERT: {obj} is missing! Time lost: {lost_time}")
