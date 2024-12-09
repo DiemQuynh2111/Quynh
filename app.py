@@ -122,12 +122,13 @@ if cap is not None and start_button:
         # Kiểm tra vật thể mất
         for obj in object_names:
             if obj not in detected_objects or detected_objects[obj] == 0:
+                # Nếu vật thể không xuất hiện, kiểm tra thời gian đã trôi qua
                 if obj not in lost_objects_time or time() - lost_objects_time[obj] > 5:  # 5 giây không phát hiện lại
-                    # Phát âm thanh cảnh báo khi vật thể mất
-                    st.warning(f"ALERT: {obj} not detected!")
-                    st.markdown(alarm_audio, unsafe_allow_html=True)  # Phát âm thanh khi vật thể mất
-                    lost_objects_time[obj] = time()  # Cập nhật lại thời gian mất vật thể
-                    st.write(f"Time lost: {time() - lost_objects_time[obj]:.2f} seconds")  # Hiển thị thời gian mất
+                    if lost_objects_time[obj] == 0:  # Chỉ thông báo khi vật thể chưa được cảnh báo
+                        st.warning(f"ALERT: {obj} not detected!")
+                        st.markdown(alarm_audio, unsafe_allow_html=True)  # Phát âm thanh khi vật thể mất
+                        lost_objects_time[obj] = time()  # Cập nhật lại thời gian mất vật thể
+                        st.write(f"Time lost: {time() - lost_objects_time[obj]:.2f} seconds")  # Hiển thị thời gian mất
 
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
