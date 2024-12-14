@@ -68,7 +68,7 @@ if video_source == "Upload File":
 if cap is not None and start_button:
     stframe = st.empty()
     detected_objects = {}
-    alerted_objects = set()
+    warning_messages = []  # Danh sách các cảnh báo
     start_time = time()
 
     # Gán thời gian mất mặc định cho các đối tượng không xuất hiện từ đầu
@@ -92,6 +92,7 @@ if cap is not None and start_button:
         class_ids = []
         confidences = []
         detected_objects.clear()
+        warning_messages.clear()  # Xóa các cảnh báo cũ
 
         # Lấy thông tin từ các lớp đầu ra
         for out in outs:
@@ -129,26 +130,28 @@ if cap is not None and start_button:
                 else:
                     detected_objects[label] = 1
 
-        # Kiểm tra vật thể thiếu và đã quay lại
-        current_time = time()
+        # Kiểm tra vật thể thiếu và tạo cảnh báo
+        y_position = 30  # Vị trí bắt đầu hiển thị text
         for obj in object_names:
             required_count = monitor_counts.get(obj, 0)
             current_count = detected_objects.get(obj, 0)
 
-            # Hiển thị thông báo chỉ 1 lần khi vật thể mất
-            if current_count < required_count:  # Đối tượng bị mất
-                if obj not in alerted_objects:  # Nếu chưa thông báo
-                    lost_count = required_count - current_count
-                    st.warning(f"⚠️ {lost_count} '{obj}' is missing!")
-                    alerted_objects.add(obj)  # Đánh dấu là đã thông báo
-            else:  # Đối tượng quay lại
-                if obj in alerted_objects:
-                    alerted_objects.remove(obj)
+            # Hiển thị số lượng vật thể
+            count_text = f"{obj}: {current_count}/{required_count}"
+            cv2.putText(frame, count_text, (10, y_position), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            y_position += 30
 
-            # Thêm thông tin số lượng vật thể lên video
-            label_text = f"{obj}: {current_count}/{required_count}"
-            cv2.putText(frame, label_text, (10, 30 + 30 * object_names.index(obj)), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            # Kiểm tra và tạo cảnh báo nếu thiếu vật thể
+            if current_count < required_count:
+                lost_count = required_count - current_count
+                warning_text = f"WARNING: {lost_count} '{obj}' is missing!"
+                warning_messages.append(warning_text)
+
+        # Hiển thị các cảnh báo trên video
+        for idx, warning in enumerate(warning_messages):
+            cv2.putText(frame, warning, (10, y_position + idx * 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
         # Hiển thị video
         stframe.image(frame, channels="BGR", use_container_width=True)
